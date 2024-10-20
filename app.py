@@ -1,6 +1,10 @@
 import streamlit as st
 from utils.clustering_comments_dbscan import *
+import sys
+import os
 
+# Добавляем путь к папке utils в PYTHONPATH
+sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
 st.title("Кластеризация комментариев")
 
 uploaded_file = st.file_uploader("Загрузка таблиц", type=['xlsx'],accept_multiple_files=False,key="fileUploader")
