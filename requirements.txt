@@ -30,7 +30,6 @@ pydeck==0.9.1
 Pygments==2.18.0
 python-dateutil==2.9.0.post0
 pytz==2024.2
-pywin32==308
 referencing==0.35.1
 regex==2024.9.11
 requests==2.32.3
