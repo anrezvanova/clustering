@@ -1,17 +1,31 @@
 import pandas as pd
+import math
 import re
 import os
+import numpy as np
+import torch
+from torch import Tensor
+from transformers import AutoTokenizer, AutoModel
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import DBSCAN
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import NearestNeighbors
 import nltk
 from nltk.corpus import stopwords
 from openpyxl.styles import Font, PatternFill
+from collections import defaultdict
+from rake_nltk import Rake, Metric
+
 import io
 import streamlit as st
 
 
 nltk.download('stopwords')
+nltk.download('punkt')
 russian_stopwords = stopwords.words("russian")
+
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
 
 def find_task_sheets(xls):
     """
@@ -35,74 +49,22 @@ def clean_column_headers(df):
     # Удаляем первые 5 строк, которые не содержат данные
     df = df.drop([0, 1, 2, 3, 4])
     df = df.reset_index(drop=True)
+     
     return df
 
-def find_columns_in_sheets(file_path, target_columns):
-    """
-    Ищет целевые колонки на листах Excel, которые соответствуют шаблону "Задача N".
+# Функция для преобразования индекса колонки в Excel-формат
+def get_excel_column_name(n):
+    result = ""
+    while n >= 0:
+        result = chr(n % 26 + ord('A')) + result
+        n = n // 26 - 1
+    return result
 
-    :param file_path: Путь к Excel файлу.
-    :param target_columns: Целевые колонки для поиска.
-    :return: Словарь с данными из найденных колонок по листам.
-    """
-    xls = pd.ExcelFile(file_path)
-    task_sheets = find_task_sheets(xls)
-    
-    all_data = []
-    
-    for sheet in task_sheets:
-        print(f"\nЛист: {sheet}")
-        df = pd.read_excel(xls, sheet_name=sheet)
-        df = clean_column_headers(df)
-        
-         # Сброс индексов на случай, если в данных есть дубликаты индексов
-        df = df.reset_index(drop=True)
-        
-        # Проверяем наличие целевых колонок
-        if all(col in df.columns for col in target_columns):
-            print(f"Найдены все колонки на листе: {sheet}")
-            print(df.head(5))  # Показываем первые 60 строк
+# Функция для получения координат ячейки
+def get_cell_coordinates(row, col):
+    col_letter = get_excel_column_name(col)  # Преобразование индекса колонки в буквы (A, B, ..., Z, AA, AB и т.д.)
+    return f"{col_letter}{row + 7}"  # Добавляем 7 к индексу строки, чтобы номер строки соответствовал Excel, так как удаляем шапку
 
-        #Отладка, если код не видит комментарии, до кластеризации ли он их не видит
-        #if sheet == "Задача 1":
-            #print(f"Найдены все колонки на листе: {sheet}")
-            #print(df.iloc[:60, :10]) 
-            #for row in range(60):
-                #for col in range(10):
-                    #cell_value = df.iloc[row, col]
-                    #print(f"Тип данных ячейки [{row}, {col}] -> {type(cell_value)}: {cell_value}")
-            
-            df['Задача'] = sheet  # Добавляем колонку с названием задачи
-            df = df[target_columns + ['Задача']]
-
-           
-            
-            print(f"DataFrame перед добавлением:\n{df.head()}\n")
-            # Проверка на дублирующиеся названия колонок
-            if df.columns.duplicated().any():
-                #print(f"Обнаружены дублирующиеся колонки: {df.columns[df.columns.duplicated()]}")
-                df = make_column_names_unique(df)
-            stop_bot_index = df[df.apply(lambda row: row.astype(str).str.contains('STOP BOT').any(), axis=1)].index
-            if len(stop_bot_index) > 0:
-                stop_bot_index = stop_bot_index[0]  # Берем первую найденную строку с "STOP BOT"
-                df = df.iloc[:stop_bot_index]  # Оставляем строки до этой строки
-            all_data.append(df)
-        else:
-            print(f"Не все колонки найдены на листе: {sheet}")
-    
-    if all_data:
-        # Объединяем все данные, игнорируя индексы
-        combined_data = pd.concat(all_data, ignore_index=True)
-
-        # Проверяем уникальность индексов после объединения
-        if not combined_data.index.is_unique:
-            print("Обнаружены дублирующиеся индексы после объединения данных.")
-            combined_data = combined_data.reset_index(drop=True)
-        
-        return combined_data
-    else:
-        return pd.DataFrame()
-    
 def make_column_names_unique(df):
     """
     Делает названия колонок уникальными, добавляя суффиксы в случае повторений (без этого происходит лаг).
@@ -114,6 +76,7 @@ def make_column_names_unique(df):
     for dup in cols[cols.duplicated()].unique():
         cols[cols[cols == dup].index.values.tolist()] = [dup + '_' + str(i) if i != 0 else dup for i in range(sum(cols == dup))]
     df.columns = cols
+    
     return df
      
 def find_comment_columns(df, base_columns):
@@ -131,21 +94,103 @@ def find_comment_columns(df, base_columns):
                 comment_columns.append(col)
     return comment_columns
 
-def cluster_comments(df, base_columns_i, base_columns_o):
+def find_columns_in_sheets(file_path, target_columns):
     """
-    Выполняет кластеризацию комментариев с обработкой всех колонок комментариев (индивидуальных и общих).
+    Ищет целевые колонки на листах Excel, которые соответствуют шаблону "Задача N".
+
+    :param file_path: Путь к Excel файлу.
+    :param target_columns: Целевые колонки для поиска.
+    :return: Словарь с данными из найденных колонок по листам.
+    """
+    xls = pd.ExcelFile(file_path)
+    task_sheets = find_task_sheets(xls)
+    
+    all_data = []
+    cell_coordinates = {}
+     # Создаем словарь соответствий
+
+    for sheet in task_sheets:
+        print(f"\nЛист: {sheet}")
+        df = pd.read_excel(xls, sheet_name=sheet)
+        df = clean_column_headers(df)
+        
+        # Сброс индексов на случай, если в данных есть дубликаты индексов
+        df = df.reset_index(drop=True)
+          # Обнуляем словарь для текущего листа
+        
+        
+        #for row in range(df.shape[0]):
+            #for col in range(df.shape[1]):
+                #print(f"Текущая колонка: {col}, Имя колонки: {get_excel_column_name(col)}")
+        for row in range(df.shape[0]):
+            for col in range(df.shape[1]):
+                cell_value = df.iat[row, col]
+                
+                coord = get_cell_coordinates(row, col)  # Получаем координаты текущей ячейки
+                cell_coordinates[(row, col)] = coord  # Сохраняем координаты в словаре
+                #print(f"Значение ячейки ({row}, {col}): {cell_value}, Координаты: {coord}")
+                df.iat[row, col] = f"{cell_value} + {coord}"
+                #print(f"Обновленная ячейка ({row}, {col}): {df.iat[row, col]}")
+        #print(cell_coordinates)
+        #print(df.head(40))
+       
+        # Проверяем наличие целевых колонок
+        if all(col in df.columns for col in target_columns):
+            #print(f"Найдены все колонки на листе: {sheet}")
+            #print(df.head(5))  # Показываем первые 5 строк
+
+             # Сохраняем координаты ячеек до внесения изменений в DataFrame
+            
+            df['Задача'] = sheet  # Добавляем колонку с названием задачи
+            df = df[target_columns + ['Задача']]
+            
+            #print(f"DataFrame перед добавлением:\n{df.head(40)}\n")
+            
+            # Проверка на дублирующиеся названия колонок
+            if df.columns.duplicated().any():
+                df = make_column_names_unique(df)
+                
+            stop_bot_index = df[df.apply(lambda row: row.astype(str).str.contains('STOP BOT').any(), axis=1)].index
+            if len(stop_bot_index) > 0:
+                stop_bot_index = stop_bot_index[0]  # Берем первую найденную строку с "STOP BOT"
+                df = df.iloc[:stop_bot_index]  # Оставляем строки до этой строки
+            
+            all_data.append(df)
+            #print(f"Все1............... {all_data}")
+            #print(cell_coordinates)  - все хорошо         
+        else:
+            print(f"Не все колонки найдены на листе: {sheet}")
+    #print(cell_coordinates)  
+    if all_data:
+        combined_data = pd.concat(all_data, ignore_index=True)
+        
+        #print(f"Все1............... Индивидуальный комментарий_19: {combined_data['Индивидуальный комментарий_19']}, Задача: {combined_data['Задача']}")
+        if not combined_data.index.is_unique:
+            print("Обнаружены дублирующиеся индексы после объединения данных.")
+            combined_data = combined_data.reset_index(drop=True)
+        #print(f"Все1............... {combined_data.head(60)}")  
+        # Возвращаем combined_data и cell_coordinates (это важно)
+        
+        return combined_data, cell_coordinates
+    else:
+        # Возвращаем пустой DataFrame и пустой словарь, если данные не были найдены
+        return pd.DataFrame(), {}
+
+def creating_dictionary(df, base_columns_i, base_columns_o, cell_coordinates):
+    """
+    Создает словарь отфильтрованных комментариев с их исходными координатами.
 
     :param df: DataFrame с данными.
     :param base_columns_i: Базовые названия колонок с индивидуальными комментариями.
     :param base_columns_o: Базовые названия колонок с общими комментариями.
-    :return: DataFrame с результатами кластеризации.
+    :return: Словарь с отфильтрованными комментариями.
     """
     # Удаляем лишние пробелы из названий колонок
     df.columns = df.columns.str.strip()
+    #print(f"Все1............... {df.head(60)}")
     
     # Делаем названия колонок уникальными, если есть дубли
     df = make_column_names_unique(df)
-    
     # Найти все колонки с комментариями (индивидуальные и общие)
     comment_columns_i = find_comment_columns(df, [base_columns_i])
     comment_columns_o = find_comment_columns(df, [base_columns_o])
@@ -156,94 +201,242 @@ def cluster_comments(df, base_columns_i, base_columns_o):
     
     # Фильтруем строки, где все комментарии слишком короткие или пустые
     df = df[~df[comment_columns_i + comment_columns_o].apply(lambda row: all(len(val) <= 5 for val in row), axis=1)]
-
     # Объединяем комментарии из всех колонок в одну колонку для кластеризации
+    
     comment_rows = []
-    
+     # Обрабатываем комментарии и сохраняем их исходные координаты
     for index, row in df.iterrows():
-        for col in comment_columns_o:  # Обрабатываем свободные комментарии справа
+        for col in comment_columns_o:  # Обрабатываем комментарии справа
             if row[col]:
-                comment_rows.append((row['Студент'], row['Проверяющий'], row['Задача'], "*" + row[col], "Индивидуальный комментарий"))
-        for col in comment_columns_i:  # Обрабатываем комментарии под колонками
-            if row[col]:
-                comment_rows.append((row['Студент'], row['Проверяющий'], row['Задача'], row[col], "Общий комментарий"))
-
-    # Проверка, если после фильтрации комментарии все еще пусты
-    if not comment_rows:
-        raise ValueError("После фильтрации не осталось данных для обработки.")
-
-    # Создаем DataFrame для кластеризации
-    comments_df = pd.DataFrame(comment_rows, columns=['Студент', 'Проверяющий', 'Задача', 'Комментарии', 'Тип комментария'])
-
-    #print(f"После фильтрации и разделения комментариев: {len(comments_df)} строк")
-    #print(comments_df.head(20))
-
-    # Кластеризация комментариев
-    vectorizer = TfidfVectorizer(stop_words=russian_stopwords)
-    X = vectorizer.fit_transform(comments_df['Комментарии'])
-    
-    # Использование DBSCAN для кластеризации
-    dbscan = DBSCAN(eps=0.89, min_samples=2, metric='cosine')
-    comments_df['Кластер'] = dbscan.fit_predict(X)
-
-    # Удаляем шум (кластеры с меткой -1)
-    comments_df = comments_df[comments_df['Кластер'] != -1]
-    
-    # Проверяем, есть ли кластеры после удаления шума
-    if comments_df.empty:
-        raise ValueError("Все комментарии были отнесены к шуму (кластер -1).")
-    
-    # Увеличиваем номера кластеров на 1, чтобы начинались с 1
-    comments_df['Кластер'] += 1
-
-    # Получаем центры кластеров для дальнейшей обработки
-    centers = pd.Series(index=comments_df['Кластер'].unique(), dtype=object)
-    for cluster in centers.index:
-        cluster_points = comments_df[comments_df['Кластер'] == cluster]
-        centers[cluster] = cluster_points[['Студент', 'Проверяющий', 'Задача', 'Комментарии']].values.tolist()
-    
-    # Сортируем по кластеру
-    comments_df = comments_df.sort_values(by=['Кластер'])
-
-    return comments_df
-
-
-
-
-def add_block_separation(df, student_column, reviewer_column, task_column, cluster_column):
-    """
-     Добавляет блоки кластеров с разделением строками и нумерацией.
-
-    :param df: DataFrame с данными после кластеризации.
-    :param student_column: Название колонки со студентом.
-    :param reviewer_column: Название колонки с проверяющим.
-    :param task_column: Название колонки с задачами.
-    :param cluster_column: Название колонки с номером кластера.
-    :return: DataFrame с блоками кластеров и разделениями.
-    """
-    final_data = []
-    
-    for task, task_group in df.groupby(task_column):
-        final_data.append([f'--- {task} ---', '', '', ''])  # Заголовок задачи
+                
+                comment_rows.append({
+                    'Ячейка': cell_coordinates[(index, df.columns.get_loc(col))],
+                    'Студент': row['Студент'],
+                    'Проверяющий': row['Проверяющий'],
+                    'Задача': row['Задача'],
+                    'Комментарии': "*" + row[col],
+                    'Тип комментария': "Общий комментарий",
+                
+                })
         
-        # Для каждой задачи разбиваем на кластеры
-        for cluster_num, cluster_group in task_group.groupby(cluster_column):
-            final_data.append([f'Кластер {cluster_num}:', '', '', ''])  # Заголовок кластера
-            
-            # Сбрасываем нумерацию для каждого кластера
-            cluster_group = cluster_group.reset_index(drop=True)
-            cluster_group['Номер'] = cluster_group.index + 1
-            
-            for _, row in cluster_group.iterrows():
-                final_data.append([row['Номер'], row[student_column], row[reviewer_column], row['Комментарии']])
-            
-            # Добавляем пустую строку после каждого кластера
-            final_data.append(['', '', '', ''])
+        for col in comment_columns_i:  # Обрабатываем индивидуальные комментарии
+            if row[col]:
+                comment_rows.append({
+                    'Ячейка': cell_coordinates[(index, df.columns.get_loc(col))],
+                    'Студент': row['Студент'],
+                    'Проверяющий': row['Проверяющий'],
+                    'Задача': row['Задача'],
+                    'Комментарии': row[col],
+                    'Тип комментария': "Индивидуальный комментарий",
+                    
+                })
     
-    # Преобразуем в DataFrame
-    final_df = pd.DataFrame(final_data, columns=['Номер', student_column, reviewer_column, 'Комментарии'])
+    comments_df = pd.DataFrame(comment_rows)
+
+    experts_comments_dict = {}
+
+    for _, row in comments_df.iterrows():
+        # Проверяем наличие "+" и что первая часть не является NaN
+        if '+' in row['Комментарии'] and pd.notna(row['Комментарии'].split('+')[0].strip()):
+            student = row['Студент']
+            reviewer = row['Проверяющий']
+            
+            # Извлекаем ключ и значение из 'Комментарии'
+            comment_key = row['Комментарии'].split('+')[1].strip()
+            comment_value = row['Комментарии'].split('+')[0].strip()
+            
+            # Проверка на 'nan' и '*nan' в значении комментария
+            if comment_value.lower() != 'nan' and '*nan' not in comment_value.lower():
+                # Если студента еще нет в словаре, добавляем его с вложенной структурой
+                if student not in experts_comments_dict:
+                    experts_comments_dict[student] = {'Проверяющий': reviewer, 'Комментарии': {}}
+                
+                # Добавляем или обновляем комментарий для данного студента
+                experts_comments_dict[student]['Комментарии'][comment_key] = comment_value
+
+    #print(df.head(20))
+    #print(experts_comments_dict)   # Для проверки
     
+    return experts_comments_dict
+
+class E5Embedder:
+    def __init__(self):
+        self.tokenizer = AutoTokenizer.from_pretrained('intfloat/multilingual-e5-small')
+        self.model = AutoModel.from_pretrained('intfloat/multilingual-e5-small')
+
+    @staticmethod
+    def average_pool(last_hidden_states: Tensor,
+                     attention_mask: Tensor) -> Tensor:
+        '''avg pooling для модели E5'''
+        last_hidden = last_hidden_states.masked_fill(
+            ~attention_mask[..., None].bool(), 0.0)
+        return last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
+
+    def get_embeddings(self, comments):
+        # get text embeddings
+        input_texts = ["passage: " + str(ans) for ans in comments]
+        quantile = np.quantile([len(ans.split())
+                               for ans in input_texts], 0.975)
+        MAX_LENGTH = int(2 ** np.ceil(np.log2(quantile)))
+        batch_dict = self.tokenizer(
+            input_texts, max_length=MAX_LENGTH, padding=True, truncation=True, return_tensors='pt')
+        with torch.no_grad():
+            outputs = self.model(**batch_dict)
+        embeddings = self.average_pool(
+            outputs.last_hidden_state, batch_dict['attention_mask']).detach().numpy()
+        return embeddings
+
+
+class Clustering:
+    def __init__(self, N_NEIGHBORS=3, PRINT_LIMIT=5):
+        '''
+        * N_NEIGHBORS: max количество представителей 1 кластера
+        * PRINT_LIMIT: max количество выводимых кластеров'''
+
+        self.e5_embedder = E5Embedder()
+        self.one_word_answers = ['да', 'нет', 'верно',
+                                 'неверно', 'является', 'можно', 'нельзя', 'можем']
+        self.N_NEIGHBORS = N_NEIGHBORS  # кол-во представителей
+        self.PRINT_LIMIT = PRINT_LIMIT  # кол-во кластеров
+
+    @staticmethod
+    def extract_keyphrases(text):
+        '''выделяет из text num_keyphrases фраз'''
+
+        stopwords_ru = stopwords.words("russian")
+        
+        for w in ['да', 'нет', 'не']:
+            stopwords_ru.remove(w)
+        
+        r = Rake(stopwords=stopwords_ru, punctuations='.()!?',
+                 language='russian', min_length=1,
+                 ranking_metric=Metric.WORD_FREQUENCY,
+                 include_repeated_phrases=False)
+
+        r.extract_keywords_from_text(text)
+        keyphrases = r.get_ranked_phrases()
+        return keyphrases
+
+    
+    def cluster(self, experts_comments_dict: dict[str, any]) -> str:
+        '''
+        Кластеризует комментарии экспертов и возвращает информацию о кластерах.
+
+        * experts_comments_dict -- словарь, где ключи - ячейка комментария, значения - комментарии.
+        Комментарии могут принимать вид строки или np.nan.
+        '''
+        lengths = []
+        comments = []
+        keys = []       # Сохраняем ключи для комментариев
+        students = []   # Сохраняем соответствующих студентов
+        reviewers = []  # Сохраняем соответствующих проверяющих
+
+        for student, data in experts_comments_dict.items():
+            reviewer = data['Проверяющий']
+            for cell_key, com in data['Комментарии'].items():
+                if isinstance(com, str) and not pd.isna(com):
+                    comments.append(f'{com}')
+                    keys.append(cell_key)      # Сохраняем ключ ячейки
+                    students.append(student)   # Сохраняем имя студента
+                    reviewers.append(reviewer) # Сохраняем имя проверяющего
+                    lengths.append(len(com.split(" ")))  # Длина комментария
+        
+        # Сохраняем текст для кластеризации
+        self.texts = comments
+
+        # Получаем эмбеддинги и нормализуем
+        self.embeddings = self.e5_embedder.get_embeddings(self.texts)
+        self.embeddings = StandardScaler().fit_transform(self.embeddings)
+
+        # Определяем стоп-слова и строим TF-IDF матрицу
+        stopwords_ru = stopwords.words("russian")
+        vectorizer = TfidfVectorizer(stop_words=stopwords_ru, min_df=2)
+
+        # Применяем DBSCAN для кластеризации
+        clustering = DBSCAN(eps=22, min_samples=2).fit(self.embeddings)
+        unique = np.unique(clustering.labels_, return_counts=True)
+        big_cluster_ids = [i for (i, count) in zip(*unique) if count > 2]
+
+        # Заменяем небольшие кластеры на -1 (шум)
+        self.labels = [l if l in big_cluster_ids else -1 for l in clustering.labels_]
+
+        # Отфильтровываем шум и сохраняем комментарии, кластеры, ключи, студента и проверяющего
+        filtered_comments_labels_keys = []
+        for i in range(len(comments)):
+            if self.labels[i] != -1:  # Игнорируем шум
+                filtered_comments_labels_keys.append((comments[i], self.labels[i], keys[i], students[i], reviewers[i]))
+
+        if filtered_comments_labels_keys == []:
+            print("Нет кластеров")
+            comments_df = pd.DataFrame({
+                'Ячейка': [],
+                'Студент': [],
+                'Проверяющий': [],
+                'Комментарии': [],
+                'Кластер': []
+            })
+            
+            return comments_df
+
+        else:
+            # Разворачиваем отфильтрованные данные для создания DataFrame
+            filtered_comments, filtered_labels, filtered_keys, filtered_students, filtered_reviewers = zip(*filtered_comments_labels_keys)
+
+            comments_df = pd.DataFrame({
+                'Ячейка': filtered_keys,
+                'Студент': filtered_students,
+                'Проверяющий': filtered_reviewers,
+                'Комментарии': filtered_comments,
+                'Кластер': filtered_labels
+            })
+
+            # Присваиваем уникальные номера кластерам
+            unique_labels = {label: i + 1 for i, label in enumerate(sorted(set(filtered_labels)))}
+            comments_df['Кластер'] = comments_df['Кластер'].map(unique_labels)
+
+            # Сортируем и возвращаем DataFrame с нужными колонками
+            comments_df = comments_df.sort_values(by='Кластер').reset_index(drop=True)
+            #print(f"вывод кластеринга {comments_df}")
+            return comments_df
+
+def create_formatted_dataframe(dataframes):
+    # Список для хранения обработанных датафреймов
+    formatted_dfs = []
+    
+    #переформирование списка задач для соответствия результатов полученных фреймов кластеризации в итоговой таблице
+    task_numbers = []
+    for df in dataframes:
+        task_numbers.append(df["Задача"].tolist()[0])
+
+    for task, df in zip(task_numbers, dataframes):
+        # Добавляем заголовок с номером задачи
+        header_df = pd.DataFrame({ 
+            "Номер": [f"--- {task} ---"], 
+            "Студент": [""], 
+            "Проверяющий": [""], 
+            "Комментарии": [""]
+        })
+        formatted_dfs.append(header_df)
+        
+        # Обработка кластеров
+        for cluster_num, cluster_df in df.groupby("Кластер"):
+            # Добавляем строку с номером кластера
+            cluster_header = pd.DataFrame({
+                "Номер": [f"Кластер {cluster_num}:"], 
+                "Студент": [""], 
+                "Проверяющий": [""], 
+                "Комментарии": [""]
+            })
+            formatted_dfs.append(cluster_header)
+            
+            # Сбрасываем индексы и добавляем кластерные данные
+            formatted_dfs.append(cluster_df.reset_index(drop=True))
+    
+    # Объединяем все обработанные части в один датафрейм
+    final_df = pd.concat(formatted_dfs, ignore_index=True)
+
     return final_df
+
 
     
 def save_results_to_excel(df, base_file_name):
@@ -261,6 +454,7 @@ def save_results_to_excel(df, base_file_name):
 
     # Создаем Excel файл в памяти
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.fillna("", inplace=True)
         df.to_excel(writer, index=False, sheet_name='Результаты')
 
         workbook = writer.book
@@ -301,30 +495,47 @@ def save_results_to_excel(df, base_file_name):
     )
 
     st.success(f"Файл '{file_name}' успешно создан и готов к скачиванию.")
+    return df
 
-def main(file_path, student_column, reviewer_column, comment_column_o, comment_column_i):
-    target_columns = [student_column, reviewer_column, comment_column_o, comment_column_i]
-    all_task_data = find_columns_in_sheets(file_path, target_columns)
-
-    combined_df = pd.DataFrame()
-
+def main(file_path, student_column, reviewer_column, comment_column_i, comment_column_o):
+    target_columns = [student_column, reviewer_column, comment_column_i, comment_column_o]
+    all_task_data, cell_coordinates = find_columns_in_sheets(file_path, target_columns)
     task_names = all_task_data['Задача'].unique()
-    
+
+    clustering_instance = Clustering()
+
+    list_clustered_info = []
     for task in task_names:
         task_data = all_task_data[all_task_data['Задача'] == task]
-        task_data = make_column_names_unique(task_data)
+        #task_data = make_column_names_unique(task_data)
         if not task_data.empty:
-            #print(f"Кластеризация для задачи {task}")
-            clustered_df = cluster_comments(task_data, comment_column_i, comment_column_o)
-            combined_df = pd.concat([combined_df, clustered_df])
+           print(f"Кластеризация для задачи {task}")
+               # Создаем словарь комментариев для текущей задачи
+           experts_comments_dict = creating_dictionary(task_data, comment_column_i, comment_column_o, cell_coordinates)
+           
+           # Выполняем кластеризацию
+           if not experts_comments_dict:  # Проверка, пуст ли словарь
+               print("Внимание: experts_comments_dict пустой. Пропускаем кластеризацию.")
+               continue
+           clustered_info = clustering_instance.cluster(experts_comments_dict)
+           
+           clustered_info['Задача'] = task  # Добавляем колонку с названием задачи
+
+           if not clustered_info.empty:
+              list_clustered_info.append(clustered_info)
+           else:
+               print("Данные не были найдены.")
     
-    if not combined_df.empty:
-        final_df = add_block_separation(combined_df, student_column, reviewer_column, 'Задача', 'Кластер')
-        #print(f"Итоговая таблица с кластеризацией:\n{final_df}")
-        base_file_name = "clustering_" + os.path.splitext(os.path.basename(file_path))[0]
-        save_results_to_excel(final_df, base_file_name)
-    else:
-        print("Данные не были найдены.")
+    
+
+    final_df = create_formatted_dataframe(list_clustered_info)
+    final_df = final_df.drop(columns=["Кластер","Задача"])
+    final_df["Студент"] = final_df["Студент"].apply(lambda x: x.split("+")[0] if isinstance(x, str) else x)
+    final_df["Проверяющий"] = final_df["Проверяющий"].apply(lambda x: x.split("+")[0] if isinstance(x, str) else x)
+    base_file_name = "clustering_" + os.path.splitext(os.path.basename(file_path))[0]
+    return save_results_to_excel(final_df, base_file_name)
+
+
 
 
 
