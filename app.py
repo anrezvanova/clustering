@@ -36,7 +36,7 @@ with tab1:
             styled_data = clustered_data.style.map(highlight_tasks_and_clusters)
 
             # Применяем стилизацию
-            styled_data = clustered_data.style.applymap(highlight_tasks_and_clusters)
+            styled_data = clustered_data.style.map(highlight_tasks_and_clusters)
 
             # Применяем автоширину к столбцам
             col_widths = {
