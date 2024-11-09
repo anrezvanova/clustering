@@ -9,12 +9,16 @@ import glob
 def create_schema():
     return Schema(
         title=TEXT(stored=True),
-        path=ID(stored=True),
-        content=TEXT(stored=True, analyzer=StemmingAnalyzer())
+        path=ID(stored=True),  # Хранит путь к файлу
+        content=TEXT(stored=True, analyzer=StemmingAnalyzer())  # Содержимое ячеек
     )
 
 # Функция для индексации всех ноутбуков в указанной папке
-def index_notebooks(folder_path, index_path):
+def index_notebooks(root_folder, index_path):
+    """
+    root_folder: Путь к корневой папке с ноутбуками, откуда начинается сохранение относительных путей.
+    index_path: Путь для сохранения индекса.
+    """
     # Проверяем, существует ли папка для индекса
     if not os.path.exists(index_path):
         os.makedirs(index_path)
@@ -25,16 +29,20 @@ def index_notebooks(folder_path, index_path):
     writer = idx.writer()
 
     # Обрабатываем все .ipynb файлы в указанной папке
-    for notebook_file in glob.glob(os.path.join(folder_path, "*.ipynb")):
+    for notebook_file in glob.glob(os.path.join(root_folder, "**", "*.ipynb"), recursive=True):
         try:
             with open(notebook_file, 'r', encoding='utf-8') as f:
                 notebook = read(f, as_version=4)
+                # Объединяем содержимое всех markdown ячеек
                 content = " ".join(cell['source'] for cell in notebook.cells if cell.cell_type == 'markdown')
-                
+
+                # Получаем относительный путь от корневой папки
+                relative_path = os.path.relpath(notebook_file, root_folder)
+
                 # Добавляем файл в индекс
                 writer.add_document(
                     title=os.path.basename(notebook_file),
-                    path=notebook_file,
+                    path=relative_path,  # Сохраняем относительный путь
                     content=content
                 )
         except Exception as e:
@@ -42,7 +50,7 @@ def index_notebooks(folder_path, index_path):
     
     # Закрываем writer после завершения
     writer.commit()
-    print(f"Индекс для папки {folder_path} успешно создан.")
+    print(f"Индекс для папки {root_folder} успешно создан.")
 
 # Укажите папки с ноутбуками и пути для сохранения индексов
 notebook_folders = {
@@ -51,11 +59,11 @@ notebook_folders = {
 }
 
 # Индексируем каждую папку из списка
-for folder_path, index_path in notebook_folders.items():
+for root_folder, index_path in notebook_folders.items():
     if not os.path.exists(index_path):  # Проверка, если индекс еще не создан
-        print(f"Создание индекса для папки: {folder_path}")
-        index_notebooks(folder_path, index_path)
+        print(f"Создание индекса для папки: {root_folder}")
+        index_notebooks(root_folder, index_path)
     else:
-        print(f"Индекс для {folder_path} уже существует. Пропускаем.")
+        print(f"Индекс для {root_folder} уже существует. Пропускаем.")
 
 print("Все папки проиндексированы.")

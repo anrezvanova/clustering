@@ -1,62 +1,48 @@
 import os
-import json
 from whoosh import index
-from whoosh.fields import Schema, TEXT
 from whoosh.qparser import QueryParser
 
-def create_index(folder_path):
-    """
-    Создает индекс для ноутбуков в указанной папке.
-    Индекс сохраняется в папке 'index', если он уже существует, то не создается заново.
-    """
-    # Определяем схему для индекса
-    schema = Schema(
-        path=TEXT(stored=True),  # Путь к файлу ноутбука
-        content=TEXT(stored=True)  # Содержимое ноутбука
-    )
+class IndexSearcher:
+    def __init__(self, index_name):
+        """
+        Инициализирует поисковый объект, открывая индекс.
+        
+        Параметры:
+        - index_name: Название папки с индексом.
+        """
+        idx_path = os.path.join("indexes", index_name)
+        self.idx = index.open_dir(idx_path)  # Открываем указанный индекс
+        self.searcher = self.idx.searcher()   # Создаем поисковик, который будет открыт на протяжении сеанса
 
-    # Проверяем, существует ли индекс
-    index_dir = "index"
-    if not os.path.exists(index_dir):
-        os.mkdir(index_dir)
-        idx = index.create_in(index_dir, schema)
-        writer = idx.writer()
+    def search(self, search_word):
+        """
+        Выполняет поиск по индексу и возвращает исходные пути к файлам с совпадением.
+        
+        Параметры:
+        - search_word: Слово или фраза для поиска.
+        
+        Возвращает:
+        - Список исходных путей к файлам, где найдено совпадение.
+        """
+        query = QueryParser("content", schema=self.idx.schema).parse(search_word)
+        results = self.searcher.search(query)
+        
+        # Получаем оригинальные пути из результатов
+        original_paths = [hit["original_path"] for hit in results]
+        return original_paths
 
-        # Проходим по всем файлам в папке
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                if file.endswith(".ipynb"):  # Работаем только с ноутбуками
-                    notebook_path = os.path.join(root, file)
-                    try:
-                        with open(notebook_path, "r", encoding="utf-8") as f:
-                            notebook_data = json.load(f)
-                            # Извлекаем содержимое ячеек (code и markdown)
-                            content = ""
-                            for cell in notebook_data.get("cells", []):
-                                if cell.get("cell_type") == "code" or cell.get("cell_type") == "markdown":
-                                    content += "".join(cell.get("source", ""))
-                            
-                            # Добавляем документ в индекс
-                            writer.add_document(path=notebook_path, content=content)
-                    except Exception as e:
-                        print(f"Ошибка при обработке файла {notebook_path}: {e}")
+    def close(self):
+        """Закрывает поисковик."""
+        self.searcher.close()
 
-        writer.commit()
-        print("Индексирование завершено и индекс создан.")
-    else:
-        print("Индекс уже существует. Можно выполнять поиск.")
+# Пример использования
 
+# Создаем поисковый объект (открывает индекс)
+index_searcher = IndexSearcher("phds_fall_2023")  # Замените на нужное имя индекса
 
-def search_in_index(search_word):
-    """
-    Ищет слово в индексированных ноутбуках.
-    """
-    idx = index.open_dir("index")
-    searcher = idx.searcher()
-    query = QueryParser("content", schema=idx.schema).parse(search_word)
+# Выполняем несколько запросов без закрытия поисковика
+print(index_searcher.search("ваше_слово_для_поиска"))
+print(index_searcher.search("другое_слово_для_поиска"))
 
-    results = searcher.search(query)
-
-    # Выводим результаты
-    result_paths = [hit["path"] for hit in results]
-    return result_paths
+# Закрываем поисковик, когда больше не нужен
+index_searcher.close()
