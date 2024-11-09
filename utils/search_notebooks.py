@@ -30,8 +30,8 @@ class IndexSearcher:
         results = self.searcher.search(query)
         
         # Получаем оригинальные пути из результатов
-        original_paths = [hit["path"] for hit in results]
-        return original_paths
+        paths = [hit["path"] for hit in results]
+        return paths
 
     def close(self):
         """Закрывает поисковик."""
