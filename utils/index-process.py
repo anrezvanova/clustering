@@ -1,16 +1,23 @@
 import os
 from whoosh.index import create_in
 from whoosh.fields import Schema, TEXT, ID
-from whoosh.analysis import StandardAnalyzer
+from whoosh.analysis import RegexTokenizer, LowercaseFilter, StopFilter
 from nbformat import read
 import glob
 
 # Создаем схему индекса
 def create_schema():
+    # Настроим анализатор для русского языка
+    russian_analyzer = (
+        RegexTokenizer() |        # Разделение текста на слова
+        LowercaseFilter() |       # Приведение к нижнему регистру
+        StopFilter(lang="ru")     # Удаление русских стоп-слов (например, "и", "в", "на")
+    )
+    
     return Schema(
         title=TEXT(stored=True),
         path=ID(stored=True),  # Хранит путь к файлу
-        content=TEXT(stored=True, analyzer=StandardAnalyzer())  # Содержимое ячеек
+        content=TEXT(stored=True, analyzer=russian_analyzer)  # Содержимое ячеек с русским анализатором
     )
 
 # Функция для индексации всех ноутбуков в указанной папке
@@ -33,8 +40,8 @@ def index_notebooks(root_folder, index_path):
         try:
             with open(notebook_file, 'r', encoding='utf-8') as f:
                 notebook = read(f, as_version=4)
-                # Объединяем содержимое всех markdown ячеек
-                content = " ".join(cell['source'] for cell in notebook.cells if cell.cell_type == 'markdown')
+                # Объединяем содержимое всех markdown и code ячеек
+                content = " ".join(cell['source'] for cell in notebook.cells if cell.cell_type in ['markdown', 'code'])
 
                 # Получаем относительный путь от корневой папки
                 relative_path = os.path.relpath(notebook_file, root_folder)
