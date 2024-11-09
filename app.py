@@ -60,8 +60,7 @@ with tab2:
     # Список с индексами, которые уже созданы
     index_names = {
         "Статистика ФБМФ (Ph@DS ВЕСНА 2024)": "statistics_fbmf_spring_2024",
-        "Ph@DS ОСЕНЬ 2023": "phds_fall_2023",
-        "DS-поток, 3 курс": "ds_3rd_course"
+        "Ph@DS ОСЕНЬ 2023": "phds_fall_2023"
     }
     st.write("Добро пожаловать в приложение поиска слов по Jupyter ноутбукам 📂")
     st.write("#### Подготовка файлов:")
@@ -89,7 +88,7 @@ with tab2:
     if st.button("Искать"):
         if selected_index_name:
             if search_word:
-                results = search_in_index(selected_index_name, search_word)
+                results = search(selected_index_name, search_word)
                 
                 if results:
                     st.write("Результаты поиска:")
