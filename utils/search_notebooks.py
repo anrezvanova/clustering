@@ -30,7 +30,7 @@ class IndexSearcher:
         results = self.searcher.search(query)
         
         # Получаем оригинальные пути из результатов
-        original_paths = [hit["original_path"] for hit in results]
+        original_paths = [hit["path"] for hit in results]
         return original_paths
 
     def close(self):

@@ -67,3 +67,26 @@ for root_folder, index_path in notebook_folders.items():
         print(f"Индекс для {root_folder} уже существует. Пропускаем.")
 
 print("Все папки проиндексированы.")
+
+from whoosh.index import open_dir
+
+def view_index_contents(index_path):
+    # Открываем индекс
+    idx = open_dir(index_path)
+    
+    # Создаем поисковик для получения всех документов
+    with idx.searcher() as searcher:
+        # Ищем все документы
+        results = searcher.all_stored_fields()
+        
+        # Выводим каждый документ, включая поля
+        for result in results:
+            print(f"Title: {result['title']}")
+            print(f"Path: {result['path']}")
+            print(f"Original Path: {result['original_path']}")
+            print(f"Content: {result['content'][:200]}...")  # Показываем первые 200 символов содержимого
+            print("-" * 50)
+
+# Пример использования:
+index_path = "/path/to/your/index/directory"  # Укажите путь к папке с индексами
+view_index_contents(index_path)
