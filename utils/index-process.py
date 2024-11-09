@@ -1,7 +1,7 @@
 import os
 from whoosh.index import create_in
 from whoosh.fields import Schema, TEXT, ID
-from whoosh.analysis import StemmingAnalyzer
+from whoosh.analysis import StandardAnalyzer
 from nbformat import read
 import glob
 
@@ -10,7 +10,7 @@ def create_schema():
     return Schema(
         title=TEXT(stored=True),
         path=ID(stored=True),  # Хранит путь к файлу
-        content=TEXT(stored=True, analyzer=StemmingAnalyzer())  # Содержимое ячеек
+        content=TEXT(stored=True, analyzer=StandardAnalyzer())  # Содержимое ячеек
     )
 
 # Функция для индексации всех ноутбуков в указанной папке
