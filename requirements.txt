@@ -35,7 +35,6 @@ pydeck==0.9.1
 Pygments==2.18.0
 python-dateutil==2.9.0.post0
 pytz==2024.2
-pywin32==308
 PyYAML==6.0.2
 rake-nltk==1.0.6
 referencing==0.35.1
