@@ -1,16 +1,74 @@
+
 import streamlit as st
+from streamlit_sortables import sort_items
 import os
 from io import BytesIO
 from utils.clustering_comments_dbscan import *  # Импортируем модуль кластеризации
 from utils.search_notebooks import *  # Импортируем функцию поиска по ноутбукам
 from utils.results_students import * # Импортируем модуль агрегации результатов
 
-# Функция для сортировки файлов по номеру в названии
+st.markdown(
+    """
+    <style>
+        #загрузчик
+        [data-testid="stFileUploaderDropzoneInstructions"] div::before {color:black; font-size: 0.9em; content:"Загрузите или перетяните файлы сюда"}
+        [data-testid="stFileUploaderDropzoneInstructions"] div span{display:none;}
+        [data-testid="stFileUploaderDropzoneInstructions"] div::after {color:black; font-size: .8em; content:"Загрузите или перетяните файлы сюда\AЛимит 200MB на файл";white-space: pre; /* Для переноса строки */}
+        [data-testid="stFileUploaderDropzoneInstructions"] div small{display:none;}
+        [data-testid="stFileUploaderDropzoneInstructions"] button{display:flex;width: 30%; padding: 0px;}
+        [data-testid="stFileUploaderDropzone"]{background-color:white; border-radius: 15px; /* Скругленные углы */border: 2px solid #4985c1; /* Прозрачная граница для эффекта */}
+    
+        /* Селектор для контейнера с атрибутом data-baseweb="select" */
+    [data-baseweb="select"] {
+        background-color: white !important; /* Белый фон для основного контейнера */
+        color: black !important; /* Черный текст */
+        border: 2px solid #4985c1; /* Легкая синяя граница */
+        border-radius: 12px; /* Скругленные углы */
+        padding: 5px; /* Внутренние отступы */
+    }
+
+    /* Стили для раскрывающегося элемента */
+    [data-baseweb="select"] .st-cg {
+        background-color: white !important; /* Белый фон для вложенного элемента */
+        border: 1px solid white !important; /* Белая внутренняя рамка */
+    }
+
+    /* Текст внутри select */
+    [data-baseweb="select"] .st-d8 {
+        color: black !important; /* Черный текст для значения */
+    }
+
+    /* Для input внутри select */
+    [data-baseweb="select"] input {
+        background-color: white !important; /* Белый фон */
+        color: black !important; /* Черный текст */
+    }
+
+    /* Для SVG и иконки стрелки */
+    [data-baseweb="select"] svg {
+        fill: black !important; /* Черный цвет иконки */
+    }    
+    </style>
+    """,
+    unsafe_allow_html=True
+    )
+
+# Функция для сортировки файлов по номеру и тексту
 def sort_files_by_number(files):
-    def extract_number(file_name):
-        match = re.search(r'\d+', file_name)
-        return int(match.group()) if match else float('inf')
-    return sorted(files, key=lambda f: extract_number(f.name))
+    def extract_key(file_name):
+        # Регулярное выражение для разделения на части: текст и число
+        match = re.match(r'(.*?)(\d+)(.*)', file_name)
+        if match:
+            prefix, number, suffix = match.groups()
+            return (prefix.strip(), int(number), suffix.strip())
+        else:
+            # Если формат не совпадает, использовать весь файл как ключ
+            return (file_name, 0, "")
+    
+    # Сортировка по извлеченным ключам
+    return sorted(files, key=lambda f: extract_key(f.name))
+
+
 
 st.title("Инструменты для таблиц")
 # Разделение интерфейса на вкладки
@@ -152,7 +210,7 @@ with tab3:
         # Инициализация списка студентов, если он ещё не загружен
         students = []
         # Список исключаемых студентов
-        excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник']
+        excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник', 'Тест Никита', 'Тест Фотофон']
 
         # Выбор варианта загрузки списка пользователей
         # Секция для получения списка пользователей
@@ -185,575 +243,276 @@ with tab3:
                 students = editable_students.split("\n")
                 students = [s.strip() for s in students if s.strip()]
             
+  
+            st.subheader('Баллы')
+            st.markdown("""
+            <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
+            Загрузите файлы.
+            </p>
+            """, unsafe_allow_html=True)
+            # Функция для кэширования загрузки данных
+            @st.cache_data(ttl=3600)
+            def load_and_extract_sum_types(file):
+                try:
+                    # Извлечение уникальных типов сумм из файла
+                    sum_types = pd.read_excel(file, sheet_name='Список задач', skiprows=3, usecols="C:D", header=None).dropna(how='all')
+                    return sum_types.iloc[:, 0].dropna().astype(str).tolist()
+                except Exception as e:
+                    st.error(f"Ошибка при обработке файла {file.name}: {e}")
+                    return []
+            if "previous_files" not in st.session_state:  # Для отслеживания предыдущих файлов
+                st.session_state["previous_files"] = []
+            if "good_cols" not in st.session_state:
+                st.session_state["good_cols"] = []
+            if "display_mode" not in st.session_state:
+                st.session_state["display_mode"] = "Все типы сумм"
+            # Флаг обновления
+            if "aggregation_needs_update" not in st.session_state:
+                st.session_state["aggregation_needs_update"] = False    
+            if "result_table_main" not in st.session_state:
+                st.session_state["result_table_main"] = None
+            if "max_ball_table_main" not in st.session_state:
+                st.session_state["max_ball_table_main"] = None
+            main_task_files = st.file_uploader("Загрузите файлы", type=["xlsx"], accept_multiple_files=True,key="main_tasks_table")
 
-            # --- Выбор курса ---
-            st.markdown("### Выбор курса")
-            course = st.selectbox(
-                "Выберите курс:",
-                ["ds3-поток", "ds4-поток", "Введение в анализ данных", "Ph@ds/Статистика ФБМФ"]
-            )
-
-
-            if course in ["ds3-поток"]:
-                # --- Основная сдача ---
+            if main_task_files:
+                new_file_names = [file.name for file in main_task_files]
+                previous_file_names = [file.name for file in st.session_state["previous_files"]]
                 
-                st.subheader('Основная сдача - анализ таблиц DS3')
-                st.markdown("""
-                <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                Загрузите ST/SP/ML - основную сдачу.
-                </p>
-                """, unsafe_allow_html=True)
-                main_task_files = st.file_uploader("Загрузите файлы основной сдачи", type=["xlsx"], accept_multiple_files=True,key="main_tasks_ds3")
+                if new_file_names != previous_file_names:
+                # Если файлы изменились, сбрасываем состояния
+                    st.session_state["good_cols"] = []
+                    st.session_state["result_table_main"] = None
+                    st.session_state["max_ball_table_main"] = None
+                    st.session_state["previous_files"] = main_task_files 
+                
+                sorted_files = sort_files_by_number(main_task_files)
+                 # Обновляем список загруженных файлов
+                with st.expander("Изменить порядок файлов", expanded=False):
+                    # Drag-and-drop сортировка
+                    file_names = [file.name for file in sorted_files]
+                    ordered_file_names = sort_items(file_names, direction="vertical", key="sortable_list")
 
-                if main_task_files:
-                    main_task_files = sort_files_by_number(main_task_files)
-                    st.write("Сортированные файлы:")
-                    for file in main_task_files:
-                        st.write(file.name)
+                    # Сопоставление нового порядка
+                    main_task_files = [file for name in ordered_file_names for file in sorted_files if file.name == name]
 
-                     # Проверка на наличие результатов в session_state
-                    if 'result_table_main' not in st.session_state or 'max_ball_table_main' not in st.session_state:
-                        if st.button("Выполнить агрегацию для ds3_потока - Основная сдача", key="ds3_main_"):
-                            good_cols = ['Студент'] + pd.read_excel(main_task_files[0], sheet_name='Студенты').columns[3:].tolist()
-                            result_table_main = aggregate_scores(students, main_task_files)
-                            max_ball_table_main = aggregate_max_ball_table(main_task_files)
-
-                            # Сохранение результатов в session_state
-                            st.session_state['result_table_main'] = result_table_main
-                            st.session_state['max_ball_table_main'] = max_ball_table_main
-
-                    # Если таблицы уже сохранены в session_state, отобразить их
-                    if 'result_table_main' in st.session_state:
-                        st.subheader("Таблица результатов для ds3-потока (Основная сдача)")
-                        st.dataframe(st.session_state['result_table_main'], use_container_width=True)
-
-                        st.subheader("Таблица максимальных баллов для ds3-потока (Основная сдача)")
-                        st.dataframe(st.session_state['max_ball_table_main'], use_container_width=True)
-                        
-                        result_table_main = st.session_state['result_table_main']
-                        max_ball_table_main = st.session_state['max_ball_table_main'] 
-                        # Сброс уровней индекса и форматирование столбцов
-                        result_table_main.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_main.columns]
-                        max_ball_table_main.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in max_ball_table_main.columns]
-                        # Скачивание файлов
-                        result_output = BytesIO()
-                        with pd.ExcelWriter(result_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_main'].to_excel(writer, index=False, sheet_name='Результаты')
-
-                        max_ball_output = BytesIO()
-                        with pd.ExcelWriter(max_ball_output, engine='xlsxwriter') as writer:
-                            st.session_state['max_ball_table_main'].to_excel(writer, index=False, sheet_name='Макс Баллы')
-
-                        st.download_button(
-                            label="Скачать результаты для основной сдачи",
-                            data=result_output.getvalue(),
-                            file_name='Результаты_основная_сдача.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                        st.download_button(
-                            label="Скачать таблицу максимальных баллов для основной сдачи",
-                            data=max_ball_output.getvalue(),
-                            file_name='Макс_баллы_основная_сдача.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                # --- Дорешка ---
-                st.subheader("Дорешка - анализ таблиц DS3")
-                st.markdown("""
-                <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                Загрузите ST/SP/ML - дорешки.
-                </p>
-                """, unsafe_allow_html=True)
-                retake_task_files = st.file_uploader("Загрузите файлы для дорешки", type=["xlsx"], accept_multiple_files=True, key="ds3_retake_tasks")
-
-                if retake_task_files:
-                    retake_task_files = sort_files_by_number(retake_task_files)
-                    st.write("Сортированные файлы для дорешки:")
-                    for file in retake_task_files:
-                        st.write(file.name)
-
+                st.write("Файлы в пользовательском порядке:")
+                for file in main_task_files:
+                    st.write(f"📄 {file.name}")
                     # Проверка на наличие результатов в session_state
-                    if 'result_table_additional' not in st.session_state or 'result_table_reset' not in st.session_state or 'max_ball_table_retake' not in st.session_state:
-                        if st.button("Выполнить агрегацию для дорешки ds3", key="ds3_dor"):
-                            good_cols_additional = ['Сумма добавка']
-                            good_cols_reset = ['Сумма с нуля']
+                
+                # Извлечение уникальных типов сумм из файлов
+                all_sum_types = set()
+                for task_file in main_task_files:
+                    all_sum_types.update(load_and_extract_sum_types(task_file))
 
-                            # Агрегация для "Сумма добавка"
-                            result_table_additional = aggregate_scores(students, retake_task_files, good_cols_additional)
+                # Сохраняем уникальные типы сумм в session_state
+                st.session_state["good_cols"] = list(all_sum_types)
+                
+                
+                # Отображаем и позволяем редактировать список столбцов
+                new_good_cols = st.text_area("Типы сумм из загруженных таблиц. Вы можете их редактировать(через запятую).", value=", ".join(st.session_state["good_cols"]))
+                    
+                # Преобразуем введенный список в список столбцов
+                updated_good_cols = [col.strip() for col in new_good_cols.split(",")]
+                 # Проверяем, изменились ли типы сумм
+                if updated_good_cols != st.session_state["good_cols"]:
+                    st.session_state["good_cols"] = updated_good_cols
+            
+                    st.session_state["aggregation_needs_update"] = True
 
-                            # Агрегация для "Сумма с нуля"
-                            result_table_reset = aggregate_scores(students, retake_task_files, good_cols_reset)
+                # Кнопка для выполнения агрегации
+                if st.button("Выполнить агрегацию"):
+                    
+                    with st.spinner("Выполняется агрегация..."):
+                        # Проверяем, нужно ли обновлять данные (если флаг False, то просто выполняем агрегацию)
+                        if st.session_state["aggregation_needs_update"]:
+                            # Выполняем агрегацию и сбрасываем флаг после завершения
+                            st.session_state["result_table_main"] = aggregate_scores(
+                                students, st.session_state["previous_files"], st.session_state["good_cols"]
+                            )
+                            st.session_state["max_ball_table_main"] = aggregate_max_ball_table(
+                                st.session_state["previous_files"], st.session_state["good_cols"]
+                            )
+                            
+                            # Сбрасываем флаг после выполнения агрегации
+                            st.session_state["aggregation_needs_update"] = False
+                        else:
+                            # Если флаг False, просто выполняем агрегацию без изменений флага
+                            st.session_state["result_table_main"] = aggregate_scores(
+                                students, st.session_state["previous_files"], st.session_state["good_cols"]
+                            )
+                            st.session_state["max_ball_table_main"] = aggregate_max_ball_table(
+                                st.session_state["previous_files"], st.session_state["good_cols"]
+                            )
+                    
+                        # Обновление прогресса
+     
+                # Показываем переключатели только если данные есть
+                if (
+                    st.session_state["result_table_main"] is not None
+                    and st.session_state["max_ball_table_main"] is not None
+                ):
+                    # Переключатель режима отображения
+                    st.session_state["display_mode"] = st.radio(
+                        'Выберите режим отображения', 
+                        options=["Все типы сумм", "По отдельным типам сумм"], 
+                        index=["Все типы сумм", "По отдельным типам сумм"].index(st.session_state["display_mode"])
+                    )
+                    
+                    # Режим отображения: Все типы сумм
+                    if st.session_state["display_mode"] == "Все типы сумм":
 
-                            # Максимальные баллы
-                            max_ball_table_retake = aggregate_max_ball_table(retake_task_files)
+                        # Вывод таблицы баллов
+                        st.subheader(f"Таблица баллов — Все типы сумм")
+                        st.dataframe(st.session_state["result_table_main"], use_container_width=True)
 
+                        # Создание таблицы максимальных баллов
+                        valid_columns = [
+                            (file, sum_type)
+                            for file in st.session_state["max_ball_table_main"].columns
+                            for sum_type in st.session_state["good_cols"]
+                            if sum_type in st.session_state["max_ball_table_main"].index and not pd.isna(
+                                st.session_state["max_ball_table_main"].at[sum_type, file]
+                            )
+                        ]
 
-                            # Сохранение в session_state
-                            st.session_state['result_table_additional'] = result_table_additional
-                            st.session_state['result_table_reset'] = result_table_reset
-                            st.session_state['max_ball_table_retake'] = max_ball_table_retake
-
-                    # Если таблицы уже сохранены в session_state, отобразить их
-                    if 'result_table_additional' in st.session_state:
-                        st.subheader("Таблица результатов для дорешки — Сумма добавка")
-                        st.dataframe(st.session_state['result_table_additional'], use_container_width=True)
-
-                        st.subheader("Таблица результатов для дорешки — Сумма с нуля")
-                        st.dataframe(st.session_state['result_table_reset'], use_container_width=True)
-
-                        st.subheader("Таблица максимальных баллов для дорешки")
-                        st.dataframe(st.session_state['max_ball_table_retake'], use_container_width=True)
-
-                        result_table_additional = st.session_state['result_table_additional']
-                        result_table_reset = st.session_state['result_table_reset'] 
-                        max_ball_table_retake = st.session_state['max_ball_table_retake'] 
-                        # Сброс уровней индекса и форматирование столбцов
-                        result_table_additional.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_additional.columns]
-                        result_table_reset.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_reset.columns]
-                        max_ball_table_retake.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in max_ball_table_retake.columns]
-                        # Скачивание файлов
-                        additional_output = BytesIO()
-                        with pd.ExcelWriter(additional_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_additional'].to_excel(writer, index=False, sheet_name='Сумма добавка')
-
-                        reset_output = BytesIO()
-                        with pd.ExcelWriter(reset_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_reset'].to_excel(writer, index=False, sheet_name='Сумма с нуля')
-
-                        max_ball_output = BytesIO()
-                        with pd.ExcelWriter(max_ball_output, engine='xlsxwriter') as writer:
-                            st.session_state['max_ball_table_retake'].to_excel(writer, index=False, sheet_name='Макс Баллы')
-
-                        st.download_button(
-                            label="Скачать результаты для дорешки ds3 — Сумма добавка",
-                            data=additional_output.getvalue(),
-                            file_name='Результаты_дорешка_сумма_добавка.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                        st.download_button(
-                            label="Скачать результаты для дорешки ds3 — Сумма с нуля",
-                            data=reset_output.getvalue(),
-                            file_name='Результаты_дорешка_сумма_с_нуля.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                        st.download_button(
-                            label="Скачать таблицу максимальных баллов для дорешки ds3",
-                            data=max_ball_output.getvalue(),
-                            file_name='Макс_баллы_дорешка.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-            elif course in ["ds4-поток"]:
-                # Логика для курса "Введение в анализ данных"
-                # --- Основная сдача ---
-                st.subheader("Основная сдача - анализ таблиц DS4")
-                st.markdown("""
-                <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                Загрузите основную сдачу.
-                </p>
-                """, unsafe_allow_html=True)
-                main_task_files4 = st.file_uploader("Загрузите файлы основной сдачи ds4", type=["xlsx"], accept_multiple_files=True, key="main_tasks_ds4")
-
-                if main_task_files4:
-                    main_task_files4 = sort_files_by_number(main_task_files4)
-                    st.write("Сортированные файлы для ds4:")
-                    for file in main_task_files4:
-                        st.write(file.name)
-
-                     # Проверка на наличие результатов в session_state
-                    if 'result_table_main' not in st.session_state or 'max_ball_table_main' not in st.session_state:
-                        if st.button("Выполнить агрегацию для ds4_потока - Основная сдача", key="ds4_main_"):
-                            good_cols = ['Студент'] + pd.read_excel(main_task_files4[0], sheet_name='Студенты').columns[3:].tolist()
-                            result_table_main = aggregate_scores(students, main_task_files4)
-                            max_ball_table_main = aggregate_max_ball_table(main_task_files4)
-
-                            # Сохранение результатов в session_state
-                            st.session_state['result_table_main'] = result_table_main
-                            st.session_state['max_ball_table_main'] = max_ball_table_main
-
-                    # Если таблицы уже сохранены в session_state, отобразить их
-                    if 'result_table_main' in st.session_state:
-                        st.subheader("Таблица результатов для ds4-потока (Основная сдача)")
-                        st.dataframe(st.session_state['result_table_main'], use_container_width=True)
-
-                        st.subheader("Таблица максимальных баллов для ds4-потока (Основная сдача)")
-                        st.dataframe(st.session_state['max_ball_table_main'], use_container_width=True)
-
-                        result_table_main = st.session_state['result_table_main']
-                        max_ball_table_main = st.session_state['max_ball_table_main'] 
-                        # Сброс уровней индекса и форматирование столбцов
-                        result_table_main.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_main.columns]
-                        max_ball_table_main.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in max_ball_table_main.columns]
-                        # Скачивание файлов
-                        result_output = BytesIO()
-                        with pd.ExcelWriter(result_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_main'].to_excel(writer, index=False, sheet_name='Результаты')
-
-                        max_ball_output = BytesIO()
-                        with pd.ExcelWriter(max_ball_output, engine='xlsxwriter') as writer:
-                            st.session_state['max_ball_table_main'].to_excel(writer, index=False, sheet_name='Макс Баллы')
-
-                        st.download_button(
-                            label="Скачать результаты для основной сдачи",
-                            data=result_output.getvalue(),
-                            file_name='Результаты_основная_сдача.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                        st.download_button(
-                            label="Скачать таблицу максимальных баллов для основной сдачи",
-                            data=max_ball_output.getvalue(),
-                            file_name='Макс_баллы_основная_сдача.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                # --- Дорешка ---
-                st.subheader("Дорешка - анализ таблиц DS4")
-                st.markdown("""
-                <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                Загрузите дорешки.
-                </p>
-                """, unsafe_allow_html=True)
-                retake_task_files = st.file_uploader("Загрузите файлы для дорешки", type=["xlsx"], accept_multiple_files=True, key="ds4_retake_tasks")
-
-                if retake_task_files:
-                    retake_task_files = sort_files_by_number(retake_task_files)
-                    st.write("Сортированные файлы для дорешки:")
-                    for file in retake_task_files:
-                        st.write(file.name)
-
-                    # Проверка на наличие результатов в session_state
-                    if 'result_table_additional' not in st.session_state or 'result_table_reset' not in st.session_state or 'max_ball_table_retake' not in st.session_state:
-                        if st.button("Выполнить агрегацию для дорешки ds4", key="ds4_dor"):
-                            good_cols_additional = ['Сумма добавка']
-                            good_cols_reset = ['Сумма с нуля']
-
-                            # Агрегация для "Сумма добавка"
-                            result_table_additional = aggregate_scores(students, retake_task_files, good_cols_additional)
-
-                            # Агрегация для "Сумма с нуля"
-                            result_table_reset = aggregate_scores(students, retake_task_files, good_cols_reset)
-
-                            # Максимальные баллы
-                            max_ball_table_retake = aggregate_max_ball_table(retake_task_files)
-
-
-                            # Сохранение в session_state
-                            st.session_state['result_table_additional'] = result_table_additional
-                            st.session_state['result_table_reset'] = result_table_reset
-                            st.session_state['max_ball_table_retake'] = max_ball_table_retake
-
-                    # Если таблицы уже сохранены в session_state, отобразить их
-                    if 'result_table_additional' in st.session_state:
-                        st.subheader("Таблица результатов для дорешки — Сумма добавка")
-                        st.dataframe(st.session_state['result_table_additional'], use_container_width=True)
-
-                        st.subheader("Таблица результатов для дорешки — Сумма с нуля")
-                        st.dataframe(st.session_state['result_table_reset'], use_container_width=True)
-
-                        st.subheader("Таблица максимальных баллов для дорешки")
-                        st.dataframe(st.session_state['max_ball_table_retake'], use_container_width=True)
-
-                        result_table_additional = st.session_state['result_table_additional'] 
-                        result_table_reset = st.session_state['result_table_reset']
-                        max_ball_table_retake = st.session_state['max_ball_table_retake']
-                        # Сброс уровней индекса и форматирование столбцов
-                        result_table_additional.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_additional.columns]
-                        result_table_reset.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_reset.columns]
-                        max_ball_table_retake.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in max_ball_table_retake.columns]
-                        # Скачивание файлов
-                        additional_output = BytesIO()
-                        with pd.ExcelWriter(additional_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_additional'].to_excel(writer, index=False, sheet_name='Сумма добавка')
-
-                        reset_output = BytesIO()
-                        with pd.ExcelWriter(reset_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_reset'].to_excel(writer, index=False, sheet_name='Сумма с нуля')
-
-                        max_ball_output = BytesIO()
-                        with pd.ExcelWriter(max_ball_output, engine='xlsxwriter') as writer:
-                            st.session_state['max_ball_table_retake'].to_excel(writer, index=False, sheet_name='Макс Баллы')
-
-                        st.download_button(
-                            label="Скачать результаты для дорешки ds4 — Сумма добавка",
-                            data=additional_output.getvalue(),
-                            file_name='Результаты_дорешка_сумма_добавка.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                        st.download_button(
-                            label="Скачать результаты для дорешки ds4 — Сумма с нуля",
-                            data=reset_output.getvalue(),
-                            file_name='Результаты_дорешка_сумма_с_нуля.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                        st.download_button(
-                            label="Скачать таблицу максимальных баллов для дорешки ds4",
-                            data=max_ball_output.getvalue(),
-                            file_name='Макс_баллы_дорешка.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-            elif course == "Введение в анализ данных":
-                # --- ДЗ ---
-                st.subheader("ВвАД - ДЗ")
-                main_task_files_ad = st.file_uploader("Загрузите файлы ДЗ", type=["xlsx"], accept_multiple_files=True, key="ad_hw")
-
-                if main_task_files_ad:
-                    main_task_files_ad = sort_files_by_number(main_task_files_ad)
-                    st.write("Сортированные файлы:")
-                    for file in main_task_files_ad:
-                        st.write(file.name)
-
-                    if 'result_table_hw_ad' not in st.session_state or 'max_ball_table_hw_ad' not in st.session_state:
-                        if st.button("Выполнить агрегацию для ДЗ", key="sem_phds"):
-                            result_table_hw_ad = aggregate_scores(students, main_task_files_ad)
-                            max_ball_table_hw_ad = aggregate_max_ball_table(main_task_files_ad)
-
-                            # Создаем мультииндекс только для существующих значений
-                            valid_columns = [(file, sum_type) for file in max_ball_table_hw_ad.columns
-                                            for sum_type in max_ball_table_hw_ad.index
-                                            if not pd.isna(max_ball_table_hw_ad.at[sum_type, file])]
-
+                        if valid_columns:
+                            # Формируем финальную таблицу
                             multiindex_columns = pd.MultiIndex.from_tuples(valid_columns, names=["Файл", "Тип суммы"])
-                            values = [max_ball_table_hw_ad.at[sum_type, file] for file, sum_type in valid_columns]
-                            final_table_hw = pd.DataFrame([values], columns=multiindex_columns)
-                            # Сохранение в session_state
-                            st.session_state['result_table_hw_ad'] = result_table_hw_ad
-                            st.session_state['max_ball_table_hw_ad'] = final_table_hw
+                            values = [
+                                st.session_state["max_ball_table_main"].at[sum_type, file]
+                                for file, sum_type in valid_columns
+                            ]
+                            final_table = pd.DataFrame([values], columns=multiindex_columns)
 
-                    # Отображение таблиц из session_state
-                    if 'result_table_hw_ad' in st.session_state:
-                        st.subheader("Таблица результатов для ВвАД (ДЗ)")
-                        st.dataframe(st.session_state['result_table_hw_ad'], use_container_width=True)
-
-                        st.subheader("Таблица максимальных баллов для ВвАД (ДЗ)")
-                        st.dataframe(st.session_state['max_ball_table_hw_ad'], use_container_width=True)
-
-                        # Сброс уровней MultiIndex перед записью
-                        
-                        result_table_hw_ad = st.session_state['result_table_hw_ad']
-                        final_table_hw = st.session_state['max_ball_table_hw_ad']
-                        result_table_hw_ad.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_hw_ad.columns]
-                        final_table_hw.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in final_table_hw.columns]
-                        # Скачивание таблиц
-                        seminar_output = BytesIO()
-                        with pd.ExcelWriter(seminar_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_hw_ad'].to_excel(writer, index=False, sheet_name='Результаты')
-
-                        max_ball_seminar_output = BytesIO()
-                        with pd.ExcelWriter(max_ball_seminar_output, engine='xlsxwriter') as writer:
-                            st.session_state['max_ball_table_hw_ad'].to_excel(writer, index=False, sheet_name='Макс Баллы')
-
-                        st.download_button(
-                            label="Скачать результаты для ДЗ",
-                            data=seminar_output.getvalue(),
-                            file_name='Результаты_ДЗ.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                        st.download_button(
-                            label="Скачать таблицу максимальных баллов для ДЗ",
-                            data=max_ball_seminar_output.getvalue(),
-                            file_name='Макс_баллы_ДЗ.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                # --- Дорешки ---
-                st.subheader("ВвАД - дорешки")
-                main_task_files = st.file_uploader("Загрузите файлы дорешек", type=["xlsx"], accept_multiple_files=True, key="ad_dor")
-
-                if main_task_files:
-                    main_task_files = sort_files_by_number(main_task_files)
-                    st.write("Сортированные файлы:")
-                    for file in main_task_files:
-                        st.write(file.name)
-
-                    if 'result_table_ad_dor' not in st.session_state or 'max_ball_table_ad_dor' not in st.session_state:
-                        if st.button("Выполнить агрегацию для дорешек - ВвАД", key="hw_phds"):
-                            # Список интересующих типов сумм
-                            good_cols = ['Добавка Л', 'Добавка С', 'Добавка Ф']
-                            result_table_ad_dor = aggregate_scores(students, main_task_files, good_cols)
-                            max_ball_table_ad_dor = aggregate_max_ball_table(main_task_files)
+                            # Вывод таблицы максимальных баллов
+                            st.subheader(f"Таблица макс.баллов — Все типы сумм")
+                            st.dataframe(final_table, use_container_width=True)
 
                             
 
-                            # Создаем мультииндекс только для существующих значений с нужными типами сумм
-                            valid_columns = [
-                                (file, sum_type) for file in max_ball_table_ad_dor.columns
-                                for sum_type in max_ball_table_ad_dor.index
-                                if sum_type in good_cols and not pd.isna(max_ball_table_ad_dor.at[sum_type, file])
+                            # Генерация файла для скачивания
+                            result_output_all = BytesIO()
+                            with pd.ExcelWriter(result_output_all, engine='xlsxwriter') as writer:
+                                # Подготовка данных для записи
+                                result_table_download = st.session_state["result_table_main"].copy()
+                                max_ball_table_download = final_table.copy()
+
+                                # Форматирование колонок
+                                result_table_download.columns = [
+                                    ' '.join(map(str, col)).strip() if isinstance(col, tuple) else col
+                                    for col in result_table_download.columns
+                                ]
+                                max_ball_table_download.columns = [
+                                    ' '.join(map(str, col)).strip() if isinstance(col, tuple) else col
+                                    for col in max_ball_table_download.columns
+                                ]
+
+                                # Запись таблиц
+                                result_table_download.to_excel(writer, index=True, sheet_name="Результаты")
+                                max_ball_table_download.to_excel(writer, index=True, sheet_name="Макс Баллы")
+
+                                # Настройка ширины колонок
+                                for sheet_name in writer.sheets:
+                                    worksheet = writer.sheets[sheet_name]
+                                    dataframe = result_table_download if sheet_name == "Результаты" else max_ball_table_download
+                                    for idx, col in enumerate(dataframe.columns):
+                                        max_length = max(
+                                            dataframe[col].astype(str).map(len).max(),
+                                            len(str(col))
+                                        ) + 2
+                                        worksheet.set_column(idx + 1, idx + 1, max_length)
+
+                            # Кнопка скачивания
+                            st.download_button(
+                                label="Скачать результаты (Все типы сумм)",
+                                data=result_output_all.getvalue(),
+                                file_name="Результаты_все_типы_сумм.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                        else:
+                            st.warning("Нет доступных данных для создания таблицы максимальных баллов.")
+
+                    elif st.session_state["display_mode"] == "По отдельным типам сумм":
+                        # Проверяем, выполнена ли агрегация
+                       
+                            
+                        for good_col in st.session_state["good_cols"]:
+                            # Найти столбцы, относящиеся к текущему типу суммы
+                            matching_cols = [
+                                col for col in st.session_state["result_table_main"].columns if col[1] == good_col
                             ]
+                            
+                            if matching_cols:
+                                # Фильтруем result_table_main по найденным столбцам
+                                filtered_result_table = st.session_state["result_table_main"].loc[:, matching_cols]
 
-                            multiindex_columns = pd.MultiIndex.from_tuples(valid_columns, names=["Файл", "Тип суммы"])
-                            values = [max_ball_table_ad_dor.at[sum_type, file] for file, sum_type in valid_columns]
-                            final_table = pd.DataFrame([values], columns=multiindex_columns)
+                                # Отображаем таблицу баллов для текущего типа суммы
+                                st.subheader(f"Таблица баллов — {good_col}")
+                                st.dataframe(filtered_result_table, use_container_width=True)
 
-                            # Сохранение в session_state
-                            st.session_state['result_table_ad_dor'] = result_table_ad_dor
-                            st.session_state['max_ball_table_ad_dor'] = final_table
+                                # Фильтруем max_ball_table_main для текущего типа суммы
+                                if good_col in st.session_state["max_ball_table_main"].index:
+                                    filtered_max_ball_table = st.session_state["max_ball_table_main"].loc[good_col]
+                                    filtered_max_ball_table = filtered_max_ball_table.to_frame().transpose()
 
-                    # Отображение таблиц из session_state
-                    if 'result_table_ad_dor' in st.session_state:
-                        st.subheader("Таблица результатов для ВвАД (дорешки)")
-                        st.dataframe(st.session_state['result_table_ad_dor'], use_container_width=True)
+                                    # Отображаем таблицу максимальных баллов
+                                    st.subheader(f"Таблица макс.баллов — {good_col}")
+                                    st.dataframe(filtered_max_ball_table, use_container_width=True)
+                                else:
+                                    st.warning(f"Для типа суммы {good_col} нет данных в таблице максимальных баллов.")
 
-                        st.subheader("Таблица максимальных баллов для ВвАД (дорешки)")
-                        st.dataframe(st.session_state['max_ball_table_ad_dor'], use_container_width=True)
+                        # Подготовка данных для скачивания
+                        result_output_separate = BytesIO()
+                        with pd.ExcelWriter(result_output_separate, engine="xlsxwriter") as writer:
+                            for good_col in st.session_state["good_cols"]:
+                                # Генерация данных для текущего типа суммы
+                                matching_cols = [
+                                    col for col in st.session_state["result_table_main"].columns if col[1] == good_col
+                                ]
+                                if matching_cols:
+                                    # Создаем таблицу результатов
+                                    filtered_result_table = st.session_state["result_table_main"].loc[:, matching_cols]
+                                    filtered_result_table.columns = [
+                                        " ".join(map(str, col)).strip() if isinstance(col, tuple) else col
+                                        for col in filtered_result_table.columns
+                                    ]
+                                    filtered_result_table.to_excel(
+                                        writer, index=True, sheet_name=f"Результаты_{good_col}"
+                                    )
 
-                        result_table_ad_dor = st.session_state['result_table_ad_dor'] 
-                        final_table = st.session_state['max_ball_table_ad_dor'] 
-                        # Сброс уровней MultiIndex перед записью
-                        result_table_ad_dor.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_ad_dor.columns]
-                        final_table.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in final_table.columns]
-                        # Скачивание таблиц
-                        hw_output = BytesIO()
-                        with pd.ExcelWriter(hw_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_ad_dor'].to_excel(writer, index=False, sheet_name='Результаты')
+                            # Сохранение max_ball_table_main
+                            max_ball_table_download = st.session_state["max_ball_table_main"].copy()
+                            max_ball_table_download.columns = [
+                                " ".join(map(str, col)).strip() if isinstance(col, tuple) else col
+                                for col in max_ball_table_download.columns
+                            ]
+                            max_ball_table_download.to_excel(
+                                writer, index=True, sheet_name="Макс Баллы"
+                            )
 
-                        max_ball_hw_output = BytesIO()
-                        with pd.ExcelWriter(max_ball_hw_output, engine='xlsxwriter') as writer:
-                            st.session_state['max_ball_table_ad_dor'].to_excel(writer, index=False, sheet_name='Макс Баллы')
+                            # Настройка ширины колонок
+                            for sheet_name in writer.sheets:
+                                worksheet = writer.sheets[sheet_name]
+                                dataframe = max_ball_table_download if sheet_name == "Макс Баллы" else filtered_result_table
+                                for idx, col in enumerate(dataframe.columns):
+                                    max_length = max(
+                                        dataframe[col].astype(str).map(len).max(), len(str(col))
+                                    ) + 2
+                                    worksheet.set_column(idx + 1, idx + 1, max_length)
 
+                        # Кнопка скачивания файла
                         st.download_button(
-                            label="Скачать результаты для дорешек",
-                            data=hw_output.getvalue(),
-                            file_name='Результаты_дорешки.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                            label="Скачать результаты (отдельные суммы)",
+                            data=result_output_separate.getvalue(),
+                            file_name="Результаты_по_типам_сумм.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         )
+        
+            
 
-                        st.download_button(
-                            label="Скачать таблицу максимальных баллов для дорешек",
-                            data=max_ball_hw_output.getvalue(),
-                            file_name='Макс_баллы_дорешки.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-            elif course == "Ph@ds/Статистика ФБМФ":
-                # --- Семинар ---
-                st.subheader("Семинар - анализ таблиц ph@ds")
-                main_task_files_ph = st.file_uploader("Загрузите файлы семинаров", type=["xlsx"], accept_multiple_files=True, key="phds_sem")
-
-                if main_task_files_ph:
-                    main_task_files_ph = sort_files_by_number(main_task_files_ph)
-                    st.write("Сортированные файлы ph@ds:")
-                    for file in main_task_files_ph:
-                        st.write(file.name)
-
-                    if 'result_table_seminar' not in st.session_state or 'max_ball_table_seminar' not in st.session_state:
-                        if st.button("Выполнить агрегацию для Семинара - ph@ds", key="sem_phds"):
-                            result_table_seminar = aggregate_scores(students, main_task_files_ph)
-                            max_ball_table_seminar = aggregate_max_ball_table(main_task_files_ph)
-
-                            # Сохранение в session_state
-                            st.session_state['result_table_seminar'] = result_table_seminar
-                            st.session_state['max_ball_table_seminar'] = max_ball_table_seminar
-
-                    # Отображение таблиц из session_state
-                    if 'result_table_seminar' in st.session_state:
-                        st.subheader("Таблица результатов для ph@ds (Семинар)")
-                        st.dataframe(st.session_state['result_table_seminar'], use_container_width=True)
-
-                        st.subheader("Таблица максимальных баллов для ph@ds (Семинар)")
-                        st.dataframe(st.session_state['max_ball_table_seminar'], use_container_width=True)
-
-                        # Сброс уровней MultiIndex перед записью
-                        
-                        result_table_seminar = st.session_state['result_table_seminar']
-                        max_ball_table_seminar = st.session_state['max_ball_table_seminar']
-                        result_table_seminar.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_seminar.columns]
-                        max_ball_table_seminar.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in max_ball_table_seminar.columns]
-                        # Скачивание таблиц
-                        seminar_output = BytesIO()
-                        with pd.ExcelWriter(seminar_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_seminar'].to_excel(writer, index=False, sheet_name='Результаты')
-
-                        max_ball_seminar_output = BytesIO()
-                        with pd.ExcelWriter(max_ball_seminar_output, engine='xlsxwriter') as writer:
-                            st.session_state['max_ball_table_seminar'].to_excel(writer, index=False, sheet_name='Макс Баллы')
-
-                        st.download_button(
-                            label="Скачать результаты для семинаров",
-                            data=seminar_output.getvalue(),
-                            file_name='Результаты_семинар.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                        st.download_button(
-                            label="Скачать таблицу максимальных баллов для семинаров",
-                            data=max_ball_seminar_output.getvalue(),
-                            file_name='Макс_баллы_семинар.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                # --- ДЗ ---
-                st.subheader("ДЗ - анализ таблиц ph@ds")
-                main_task_files = st.file_uploader("Загрузите файлы ДЗ", type=["xlsx"], accept_multiple_files=True, key="phds_hw")
-
-                if main_task_files:
-                    main_task_files = sort_files_by_number(main_task_files)
-                    st.write("Сортированные файлы:")
-                    for file in main_task_files:
-                        st.write(file.name)
-
-                    if 'result_table_main_hw' not in st.session_state or 'max_ball_table_main_hw' not in st.session_state:
-                        if st.button("Выполнить агрегацию для ДЗ - ph@ds", key="hw_phds"):
-                            result_table_main_hw = aggregate_scores(students, main_task_files)
-                            max_ball_table_main_hw = aggregate_max_ball_table(main_task_files)
-
-                            # Создаем мультииндекс только для существующих значений
-                            valid_columns = [(file, sum_type) for file in max_ball_table_main_hw.columns
-                                            for sum_type in max_ball_table_main_hw.index
-                                            if not pd.isna(max_ball_table_main_hw.at[sum_type, file])]
-
-                            multiindex_columns = pd.MultiIndex.from_tuples(valid_columns, names=["Файл", "Тип суммы"])
-                            values = [max_ball_table_main_hw.at[sum_type, file] for file, sum_type in valid_columns]
-                            final_table = pd.DataFrame([values], columns=multiindex_columns)
-
-                            # Сохранение в session_state
-                            st.session_state['result_table_main_hw'] = result_table_main_hw
-                            st.session_state['max_ball_table_main_hw'] = final_table
-
-                    # Отображение таблиц из session_state
-                    if 'result_table_main_hw' in st.session_state:
-                        st.subheader("Таблица результатов для ph@ds (ДЗ)")
-                        st.dataframe(st.session_state['result_table_main_hw'], use_container_width=True)
-
-                        st.subheader("Таблица максимальных баллов для ph@ds (ДЗ)")
-                        st.dataframe(st.session_state['max_ball_table_main_hw'], use_container_width=True)
-
-                        result_table_main_hw = st.session_state['result_table_main_hw'] 
-                        final_table = st.session_state['max_ball_table_main_hw'] 
-                        # Сброс уровней MultiIndex перед записью
-                        result_table_main_hw.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in result_table_main_hw.columns]
-                        final_table.columns = [' '.join(map(str, col)).strip() if isinstance(col, tuple) else col for col in final_table.columns]
-                        # Скачивание таблиц
-                        hw_output = BytesIO()
-                        with pd.ExcelWriter(hw_output, engine='xlsxwriter') as writer:
-                            st.session_state['result_table_main_hw'].to_excel(writer, index=False, sheet_name='Результаты')
-
-                        max_ball_hw_output = BytesIO()
-                        with pd.ExcelWriter(max_ball_hw_output, engine='xlsxwriter') as writer:
-                            st.session_state['max_ball_table_main_hw'].to_excel(writer, index=False, sheet_name='Макс Баллы')
-
-                        st.download_button(
-                            label="Скачать результаты для ДЗ",
-                            data=hw_output.getvalue(),
-                            file_name='Результаты_ДЗ.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-
-                        st.download_button(
-                            label="Скачать таблицу максимальных баллов для ДЗ",
-                            data=max_ball_hw_output.getvalue(),
-                            file_name='Макс_баллы_ДЗ.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-                        
+            
     # --- Блок 2: Обработка результатов вопросов ---
     elif selected_block == "Обработка результатов вопросов":
         st.header("Обработка результатов вопросов")
@@ -768,14 +527,14 @@ with tab3:
 
         students = []
         # Список исключаемых студентов
-        excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник']
+        excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник', 'Тест Никита', 'Тест Фотофон']
 
         # Выбор варианта загрузки списка пользователей
         st.subheader("Пользователи")
         option = st.radio("Выберите способ получения списка пользователей:", ("Загрузить из таблицы", "Ввести вручную"))
 
         if option == "Загрузить из таблицы":
-            uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"])
+            uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"], key="questions")
             if uploaded_file:
                 students = get_students_from_file(uploaded_file, excluded_students)
         else:
@@ -905,13 +664,13 @@ with tab3:
         # Шаг 1: Загрузка списка студентов
 
         students = []
-        excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник']
+        excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник', 'Тест Никита', 'Тест Фотофон']
 
         st.subheader("Пользователи")
         option = st.radio("Выберите способ получения списка пользователей:", ("Загрузить из таблицы", "Ввести вручную"))
 
         if option == "Загрузить из таблицы":
-            uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"])
+            uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"], key="attendance")
             if uploaded_file:
                 students = get_students_from_file(uploaded_file, excluded_students)
         else:
@@ -927,54 +686,31 @@ with tab3:
                 students = editable_students.split("\n")
                 students = [s.strip() for s in students if s.strip()]
 
-        # Шаг 3: Загрузка общей таблицы посещаемости
-        st.subheader("Выбор курса")
+            st.subheader("Посещаемость")
+            # Получение и редактирование списка преподавателей
+            
+            
+            students_file = st.file_uploader("Выберите файл Посещаемость.xlsx", type=["xlsx", "xls"])
+            if students_file:
+                try:
+                    with st.spinner("Выполняется агрегация..."):
+                        result_table = process_attendance(students_file, students)
 
+                        # Выводим объединённый результат
+                        st.subheader("Таблица")
+                        st.dataframe(result_table)
 
-
-        # Предустановленные списки преподавателей
-        default_teachers = {
-            "ds3-поток": {
-                "ST": ['Латыпова Екатерина', 'Полозов Дмитрий'],
-                "SP": ['Клейдман Полина', 'Плотникова Дарья'],
-                "ML": ['Мелещеня Ксения', 'Горбулев Алексей', 'Троешестова Лидия']
-            },
-            "ds4-поток": {
-                "DS4": ['Колтаков Михаил', 'Паненко Семён']
-            },
-            "Ph@ds": {
-                "Ph@ds": ['Жданович Тимофей', 'Логинов Артём', 'Бруттан Мари']
-            },
-            "Статистика ФБМФ": {
-                "Статистика ФБМФ": ['Воронова Алиса', 'Мадан Арина']
-            }
-        }
-
-        # Выбор курса
-        selected_course = st.selectbox("Выберите курс", list(default_teachers.keys()))
-
-        # Получение и редактирование списка преподавателей
-        teachers = default_teachers[selected_course]
-
-        with st.expander("Редактировать преподавателей", expanded=False):
-            for block, teacher_list in teachers.items():
-                st.write(f"Блок: {block}")
-                # Редактируемый список преподавателей
-                updated_teachers = st.text_area(f"Преподаватели для {block}", "\n".join(teacher_list))
-                # Сохранение изменений
-                teachers[block] = [teacher.strip() for teacher in updated_teachers.split("\n") if teacher.strip()]
-
-        st.subheader("Посещаемость")
-        students_file = st.file_uploader("Выберите файл Посещаемость.xlsx", type=["xlsx", "xls"])
-        if students_file:
-            try:
-                result_tables = process_attendance(students, students_file, teachers)
-
-                for block, table in result_tables.items():
-                    st.subheader(f"{block} Таблица")
-                    st.dataframe(table)
-
-            except Exception as e:
-                st.error(f"Ошибка обработки файла: {e}")
-        else:
-            st.warning("Пожалуйста, загрузите файл с посещаемостью.")
+                        # Кнопка для скачивания результата
+                        buffer = BytesIO()
+                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                            result_table.to_excel(writer, index=True, sheet_name="Результат")
+                        st.download_button(
+                            label="Скачать результат",
+                            data=buffer.getvalue(),
+                            file_name="Результат_посещаемости.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+                except Exception as e:
+                    st.error(f"Ошибка обработки файла: {e}")
+            else:
+                st.warning("Пожалуйста, загрузите файл с посещаемостью.")

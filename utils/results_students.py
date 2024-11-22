@@ -1,18 +1,17 @@
 import pandas as pd
 import numpy as np
 from tqdm.autonotebook import tqdm
-import io
+import re
+from openpyxl import load_workbook
+
 
 # --- БЛОК 1: Агрегация баллов ---
 def get_students_from_file(file_path, excluded_students):
     """Загружает студентов из Excel-файла, исключая тестовые записи."""
     data = pd.read_excel(file_path)[['status', 'fullname']]
     students = data[data['status'] != 'teacher']['fullname']
-    print('Количество студентов до фильтрации:', len(students))
-    print('Количество исключаемых студентов:', len(excluded_students))
-    excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник']
     students = students[~students.isin(excluded_students)]
-    print('Количество студентов после фильтрации:', len(students))
+    
     return list(students)
 
 def aggregate_scores(students, task_files, good_cols=None):
@@ -24,7 +23,7 @@ def aggregate_scores(students, task_files, good_cols=None):
         try:
             # Парсим баллы студентов
             table = pd.read_excel(task_file, sheet_name='Студенты')
-            print(table)
+            
             # Используем good_cols, если он передан, иначе выбираем 'Студент' и колонки начиная с D
             if good_cols:
                 actual_cols = ['Студент'] + [col for col in good_cols if col in table.columns]
@@ -40,19 +39,19 @@ def aggregate_scores(students, task_files, good_cols=None):
         except Exception as e:
             print(f"Не удалось обработать файл {task_file.name}: {e}")
 
-        
+    
     return result_table 
 
 
 
-def aggregate_max_ball_table(task_files):
+def aggregate_max_ball_table(task_files, good_cols=None):
     """
     Создает таблицу, где строки — это типы сумм, а столбцы — файлы.
     Заполняет только те суммы, которые присутствуют, оставляя NaN для отсутствующих значений.
     """
     # Словарь для сбора данных
     sum_dict = {}
-
+    file_order = [task_file.name for task_file in task_files]
     # Проходим по каждому файлу
     for task_file in tqdm(task_files):
         try:
@@ -64,6 +63,7 @@ def aggregate_max_ball_table(task_files):
                 usecols="C:D", 
                 header=None
             ).dropna(how='all')
+            print(max_ball)
             max_ball.columns = ['Сумма', 'Значение']
 
             file_name = task_file.name
@@ -73,6 +73,9 @@ def aggregate_max_ball_table(task_files):
                 sum_type = row['Сумма']
                 value = row['Значение']
                 
+                # Пропускаем, если сумма не в good_cols (если указан)
+                if good_cols and sum_type not in good_cols:
+                    continue
                 # Инициализируем вложенные словари, если их еще нет
                 if sum_type not in sum_dict:
                     sum_dict[sum_type] = {}
@@ -85,6 +88,17 @@ def aggregate_max_ball_table(task_files):
 
     # Преобразуем данные в DataFrame
     max_ball_table = pd.DataFrame(sum_dict).T
+
+    # Сортируем строки по good_cols (если указаны)
+    if good_cols:
+        max_ball_table = max_ball_table.loc[good_cols]
+
+    # Упорядочиваем столбцы в соответствии с порядком файлов
+    max_ball_table = max_ball_table.reindex(columns=file_order)
+
+    # Удаляем столбцы с полностью NaN значениями
+    max_ball_table = max_ball_table.dropna(axis=1, how='all')
+    
     
     return max_ball_table
 
@@ -219,52 +233,108 @@ def process_question_files(students, file_names, question_files):
 
 
 # --- БЛОК 3: Обработка посещаемости ---
-def process_attendance(student_list, file_path, teachers):
-    from openpyxl import load_workbook
-    wb = load_workbook(file_path)
+def process_attendance(file_obj,students):
+    """
+    Обработка файла с посещаемостью, добавляя список студентов и группируя по преподавателям.
+    
+    :param file_obj: файл Excel с посещаемостью.
+    :param student_list: список студентов для добавления в таблицу.
+    :return: DataFrame с посещаемостью.
+    """
+    # Загрузка файла Excel через openpyxl
+    # Загрузка файла Excel через openpyxl
+    # Загрузка файла Excel через openpyxl
+    wb = load_workbook(file_obj, data_only=True)
     sheet = wb.active
 
-    # Разбиваем объединенные ячейки
-    merged_ranges = sheet.merged_cells.ranges
+    # Создаем новую таблицу, обрабатывая объединенные ячейки
     data = []
+    for row in sheet.iter_rows():
+        new_row = []
+        for cell in row:
+            if cell.coordinate in sheet.merged_cells:  # Проверяем, часть ли ячейка объединенного диапазона
+                for merged_range in sheet.merged_cells.ranges:
+                    if cell.coordinate in merged_range:
+                        new_row.append(merged_range.start_cell.value)
+                        break
+            else:
+                new_row.append(cell.value)
+        data.append(new_row)
 
-    for row in sheet.iter_rows(values_only=True):
-        data.append(list(row))
-
-    for merged in merged_ranges:
-        top_left_value = sheet.cell(merged.min_row, merged.min_col).value
-        for row in range(merged.min_row, merged.max_row + 1):
-            for col in range(merged.min_col, merged.max_col + 1):
-                if data[row - 1][col - 1] is None:
-                    data[row - 1][col - 1] = top_left_value
-
-    # Создание DataFrame
+    # Преобразуем данные в DataFrame
     df = pd.DataFrame(data)
+    # Функция для очистки имени преподавателя от цифр и специальных символов
+    def clean_teacher_name(name):
+        # Убираем все символы, кроме букв и пробелов
+        name = re.sub(r'[^\w\s]', '', name)
+        # Убираем суффиксы вида _1, _2 и т.п.
+        name = re.sub(r'_\d+$', '', name)
+        return name.strip()
+    
+    
+    try:
+        # Шапка таблицы: преподаватели, названия занятий, даты
+        first_row = df.iloc[0].fillna("Не указано").tolist()  # Преподаватели
+        second_row = df.iloc[1].fillna("Не указано").tolist()  # Названия занятий
+        third_row = pd.to_datetime(df.iloc[2], errors='coerce').dt.strftime('%Y-%m-%d').fillna("Не указано").tolist()  # Даты
+        
 
-    first_row = df.iloc[0]  # Преподаватели
-    second_row = df.iloc[1]  # Названия занятий
-    third_row = df.iloc[2]  # Дата и время
+        # Очистим имена преподавателей в первой строке
+        cleaned_first_row = [clean_teacher_name(prof) if prof != "Не указано" else prof for prof in first_row[1:]]
 
-    students_data = df.iloc[3:].reset_index(drop=True)
-    students_data.columns = ['Автор'] + list(range(1, len(students_data.columns)))
+        # Порядок преподавателей на основе их первого появления (уже очищенных имен)
+        teacher_order = {prof: idx for idx, prof in enumerate(cleaned_first_row) if prof != "Не указано"}
 
-    students_data['Автор'] = students_data['Автор'].str.strip()
-    students_data = students_data.set_index('Автор').reindex(student_list).reset_index()
+        # Формируем MultiIndex из трех уровней
+        multi_index = []
+        seen = set()
+        
+        for prof, session, date in zip(first_row[1:], second_row[1:], third_row[1:]):
+            cleaned_prof = clean_teacher_name(prof)
+            # Проверка, является ли дата строкой, и если да, то пробуем её привести к нужному формату
+            
+            # Если значение не строка, проверяем на дату
+            try:
+                date = pd.to_datetime(date, errors='coerce')
+                if pd.notna(date):
+                    date_str = date.strftime('%d.%m')  # Форматируем дату в "день.месяц"
+                else:
+                    date_str = "Не указано"
+            except Exception:
+                date_str = "Не указано"
+            unique_combination = (cleaned_prof, session, date_str)
+            counter = 1
+            while unique_combination in seen:
+                unique_combination = (f"{prof}_{counter}", f"{session}_{counter}", f"{date}_{counter}")
+                counter += 1
+            seen.add(unique_combination)
+            multi_index.append(unique_combination)
+        multi_index.sort(key=lambda x: (teacher_order.get(clean_teacher_name(x[0]), float('inf')), pd.to_datetime(x[2], errors='coerce')))
+        # Подготовка данных
+        students_data = df.iloc[3:].reset_index(drop=True)
+        
+        students_data['Автор'] = students_data.iloc[:, 0].str.strip()  # Добавляем столбец с именами студентов
+        students_data = students_data.drop(columns=students_data.columns[0])  # Убираем лишний первый столбец
 
-    metadata = pd.DataFrame({
-        'Автор': ['Преподаватель', 'Название занятия', 'Дата и время'],
-        **{col: [first_row[col], second_row[col], third_row[col]] for col in range(1, len(first_row))}
-    })
+        # Добавляем список студентов
+        new_students = pd.DataFrame({'Автор': students})
+        students_data = pd.merge(new_students, students_data, on='Автор', how='left')
 
-    students_data = pd.concat([metadata, students_data], ignore_index=True)
+        # Устанавливаем MultiIndex для столбцов
+        columns = [('Автор', '', '')] + multi_index
+        students_data.columns = pd.MultiIndex.from_tuples(columns)
+         # Убедимся, что все студенты находятся в индексе
+        students_data = students_data.set_index('Автор')
+        
+        
+       
+        # Фильтрация столбцов по преподавателям
+        
 
-    def filter_columns_by_teachers(columns, teacher_list):
-        return [col for col in columns if first_row[col] in teacher_list]
+        # Применение фильтрации
+       
+        # Возвращаем единую таблицу
+        return students_data
 
-    # Фильтрация по блокам преподавателей
-    result_tables = {}
-    for block, teacher_list in teachers.items():
-        filtered_columns = ['Автор'] + filter_columns_by_teachers(range(1, len(students_data.columns)), teacher_list)
-        result_tables[block] = students_data[filtered_columns]
-
-    return result_tables
+    except Exception as e:
+        raise ValueError(f"Ошибка при обработке файла: {e}")
