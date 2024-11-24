@@ -6,7 +6,7 @@ import subprocess
 
 import requests
 import re
-
+import os
 # --- Качество ноутбуков ---
 class NotebookStyleChecker:
     def __init__(self, notebook_path: str):
@@ -50,10 +50,22 @@ class NotebookStyleChecker:
 
 def run_nbqa_tool(tool: str, notebook_path: str, additional_args=None):
     """Выполняет указанный nbqa инструмент."""
+    
     additional_args = additional_args or []
     command = ["nbqa", tool, notebook_path, *additional_args]
-    result = subprocess.run(command, capture_output=True, text=True)
-    return result.stdout, result.stderr, result.returncode
+    if not os.path.exists(notebook_path):
+        raise FileNotFoundError(f"Файл {notebook_path} не найден.")
+    try:
+        print(f"Executing command: {' '.join(command)}")  # Для отладки
+        result = subprocess.run(command, capture_output=True, text=True)
+        return result.stdout, result.stderr, result.returncode
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            f"Команда не найдена: {' '.join(command)}. "
+            "Убедитесь, что nbqa установлена и доступна в PATH."
+        ) from e
+    except Exception as e:
+        raise RuntimeError(f"Ошибка при выполнении команды: {' '.join(command)}") from e
 
 # Функция для удаления ANSI escape кодов
 def remove_ansi_escape_codes(text: str) -> str:
