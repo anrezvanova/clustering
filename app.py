@@ -755,9 +755,11 @@ with tab4:
 
     if uploaded_file:
         
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".ipynb") as temp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ipynb", dir="/tmp") as temp_file:
             temp_file.write(uploaded_file.read())
             temp_file_path = temp_file.name
+        if not os.path.exists(temp_file_path):
+            raise FileNotFoundError(f"Файл {temp_file_path} не найден.")
         # Опция длины строки для black
         line_length = st.number_input(
             "Укажите длину строки для инструмента black (по умолчанию 80):",
