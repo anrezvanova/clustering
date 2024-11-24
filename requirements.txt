@@ -68,7 +68,7 @@ python-dateutil==2.9.0.post0
 python-decouple==3.8
 pytz==2024.2
 pyupgrade==3.19.0
-pywin32==308
+pywin32==308; sys_platform == "win32"
 PyYAML==6.0.2
 rake-nltk==1.0.6
 referencing==0.35.1
