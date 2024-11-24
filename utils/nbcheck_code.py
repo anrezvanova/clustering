@@ -49,23 +49,33 @@ class NotebookStyleChecker:
         return issues
 
 def run_nbqa_tool(tool: str, notebook_path: str, additional_args=None):
-    """Выполняет указанный nbqa инструмент."""
+    """
+    Выполняет указанный nbqa инструмент.
     
+    :param tool: Имя инструмента (например, "black", "ruff").
+    :param notebook_path: Путь к Jupyter Notebook.
+    :param additional_args: Дополнительные аргументы для команды.
+    :return: stdout, stderr, returncode
+    """
     additional_args = additional_args or []
     command = ["nbqa", tool, notebook_path, *additional_args]
+
+    # Проверяем, существует ли файл
     if not os.path.exists(notebook_path):
-        raise FileNotFoundError(f"Файл {notebook_path} не найден.")
+        raise FileNotFoundError(f"Файл {notebook_path} не найден. Убедитесь, что путь корректен.")
+    
+    # Попытка выполнить команду
     try:
-        print(f"Executing command: {' '.join(command)}")  # Для отладки
-        result = subprocess.run(command, capture_output=True, text=True)
+        print(f"Executing command: {' '.join(command)}")  # Лог команды
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
         return result.stdout, result.stderr, result.returncode
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         raise FileNotFoundError(
-            f"Команда не найдена: {' '.join(command)}. "
-            "Убедитесь, что nbqa установлена и доступна в PATH."
-        ) from e
+            f"Команда 'nbqa' не найдена. Проверьте, установлена ли она в текущей среде, "
+            "и доступна ли через PATH. Установить nbqa можно с помощью 'pip install nbqa'."
+        )
     except Exception as e:
-        raise RuntimeError(f"Ошибка при выполнении команды: {' '.join(command)}") from e
+        raise RuntimeError(f"Ошибка при выполнении команды {' '.join(command)}: {e}")
 
 # Функция для удаления ANSI escape кодов
 def remove_ansi_escape_codes(text: str) -> str:
