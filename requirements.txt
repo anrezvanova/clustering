@@ -65,3 +65,4 @@ watchdog==5.0.3
 Whoosh==2.7.4
 xlsxwriter
 streamlit_sortables
+nbformat
