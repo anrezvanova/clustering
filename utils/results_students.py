@@ -6,13 +6,13 @@ from openpyxl import load_workbook
 
 
 # --- БЛОК 1: Агрегация баллов ---
-def get_students_from_file(file_path, excluded_students):
+def get_students_from_file(file_path):
     """Загружает студентов из Excel-файла, исключая тестовые записи."""
     data = pd.read_excel(file_path)[['status', 'fullname']]
-    students = data[data['status'] != 'teacher']['fullname']
-    students = students[~students.isin(excluded_students)]
+    all_students = data[data['status'] != 'teacher']['fullname']
     
-    return list(students)
+    
+    return list(all_students)
 
 def aggregate_scores(students, task_files, good_cols=None):
     """Выполняет агрегацию баллов студентов по загруженным файлам заданий."""
