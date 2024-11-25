@@ -6,7 +6,7 @@ import subprocess
 
 import requests
 import re
-import os
+
 # --- Качество ноутбуков ---
 class NotebookStyleChecker:
     def __init__(self, notebook_path: str):
@@ -49,33 +49,12 @@ class NotebookStyleChecker:
         return issues
 
 def run_nbqa_tool(tool: str, notebook_path: str, additional_args=None):
-    """
-    Выполняет указанный nbqa инструмент.
+    """Выполняет указанный nbqa инструмент."""
     
-    :param tool: Имя инструмента (например, "black", "ruff").
-    :param notebook_path: Путь к Jupyter Notebook.
-    :param additional_args: Дополнительные аргументы для команды.
-    :return: stdout, stderr, returncode
-    """
     additional_args = additional_args or []
     command = ["nbqa", tool, notebook_path, *additional_args]
-
-    # Проверяем, существует ли файл
-    if not os.path.exists(notebook_path):
-        raise FileNotFoundError(f"Файл {notebook_path} не найден. Убедитесь, что путь корректен.")
-    
-    # Попытка выполнить команду
-    try:
-        print(f"Executing command: {' '.join(command)}")  # Лог команды
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
-        return result.stdout, result.stderr, result.returncode
-    except FileNotFoundError:
-        raise FileNotFoundError(
-            f"Команда 'nbqa' не найдена. Проверьте, установлена ли она в текущей среде, "
-            "и доступна ли через PATH. Установить nbqa можно с помощью 'pip install nbqa'."
-        )
-    except Exception as e:
-        raise RuntimeError(f"Ошибка при выполнении команды {' '.join(command)}: {e}")
+    result = subprocess.run(command, capture_output=True, text=True)
+    return result.stdout, result.stderr, result.returncode
 
 # Функция для удаления ANSI escape кодов
 def remove_ansi_escape_codes(text: str) -> str:
@@ -103,3 +82,12 @@ def parse_and_format_errors(tool: str, output: str, success: bool) -> str:
     
     # Возвращаем отформатированные сообщения
     return "\n".join(formatted_output)
+
+def generate_report(log_output, score):
+    """Генерирует отчет о проверке качества в текстовом формате."""
+    report_lines = []
+    report_lines.append("=== Отчет о проверке качества Jupyter Notebook ===\n")
+    report_lines.append(f"Итоговая оценка качества: {score:.2f}/10\n")
+    report_lines.append("=== Логи и сообщения инструментов ===\n")
+    report_lines.extend(log_output)
+    return "\n".join(report_lines)
