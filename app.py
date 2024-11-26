@@ -39,7 +39,7 @@ st.markdown(
 
     /* Текст внутри select */
     [data-baseweb="select"] .st-d8 {
-        color: white !important; /* Белый текст на голубом фоне */
+        color: black !important; /* Белый текст на голубом фоне */
         padding: 0 !important; /* Убираем лишние отступы */
     }
 
@@ -53,7 +53,7 @@ st.markdown(
 
     /* Для SVG и иконки стрелки */
     [data-baseweb="select"] svg {
-        fill: black !important; /* Белая иконка стрелки */
+        fill: black !important; /* Черная иконка стрелки */
     }
     </style>
     """,
