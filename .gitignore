@@ -8,7 +8,8 @@ venv/
 .DS_Store
 __pycache__/
 .vscode/
-
+.mypy_cache/
+.ruff_cache/
 # Игнорировать папки с данными и большими файлами
 data/
 *.zip

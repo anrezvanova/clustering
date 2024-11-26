@@ -6,10 +6,7 @@ from io import BytesIO
 from utils.clustering_comments_dbscan import *  # Импортируем модуль кластеризации
 from utils.search_notebooks import *  # Импортируем функцию поиска по ноутбукам
 from utils.results_students import * # Импортируем модуль агрегации результатов
-from utils.nbcheck_code import * # Импортируем модуль агрегации результатов
-from utils.nbcheck_style import *
-from io import BytesIO
-import tempfile
+
 import re
 
 st.markdown(
@@ -23,36 +20,41 @@ st.markdown(
         [data-testid="stFileUploaderDropzoneInstructions"] button{display:flex;width: 30%; padding: 0px;}
         [data-testid="stFileUploaderDropzone"]{background-color:white; border-radius: 15px; /* Скругленные углы */border: 2px solid #4985c1; /* Прозрачная граница для эффекта */}
     
-        /* Селектор для контейнера с атрибутом data-baseweb="select" */
+       /* Основной контейнер */
     [data-baseweb="select"] {
-        background-color: white !important; /* Белый фон для основного контейнера */
+        background-color: #4985c1 !important; /* Голубой фон для основного контейнера */
         color: black !important; /* Черный текст */
-        border: 2px solid #4985c1; /* Легкая синяя граница */
-        border-radius: 12px; /* Скругленные углы */
-        padding: 5px; /* Внутренние отступы */
+        border: 2px solid #4985c1; /* Граница совпадает с фоном */
+        border-radius: 10px; /* Скругленные углы */
+        padding: 0px; /* Убираем внутренние отступы */
+        overflow: hidden; /* Убираем возможные выступающие элементы */
     }
 
-    /* Стили для раскрывающегося элемента */
+    /* Вложенный элемент, отвечающий за белую полосу */
     [data-baseweb="select"] .st-cg {
-        background-color: white !important; /* Белый фон для вложенного элемента */
-        border: 1px solid white !important; /* Белая внутренняя рамка */
+        background-color: transparent !important; /* Убираем белый фон */
+        border: none !important; /* Убираем границу */
+        padding: 0 !important; /* Убираем отступы */
     }
 
     /* Текст внутри select */
     [data-baseweb="select"] .st-d8 {
-        color: black !important; /* Черный текст для значения */
+        color: white !important; /* Белый текст на голубом фоне */
+        padding: 0 !important; /* Убираем лишние отступы */
     }
 
     /* Для input внутри select */
     [data-baseweb="select"] input {
-        background-color: white !important; /* Белый фон */
-        color: black !important; /* Черный текст */
+        background-color: transparent !important; /* Прозрачный фон */
+        
+        border: none !important; /* Убираем рамку */
+        padding: 0 !important; /* Минимизируем отступы */
     }
 
     /* Для SVG и иконки стрелки */
     [data-baseweb="select"] svg {
-        fill: black !important; /* Черный цвет иконки */
-    }    
+        fill: black !important; /* Белая иконка стрелки */
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -77,7 +79,7 @@ def sort_files_by_number(files):
 
 st.title("Инструменты для таблиц")
 # Разделение интерфейса на вкладки
-tab1, tab2, tab3, tab4 = st.tabs(["Кластеризация комментариев", "Поиск по ноутбукам", "Агрегация результатов", "Качество ноутбуков"])
+tab1, tab2, tab3 = st.tabs(["Кластеризация комментариев", "Поиск по ноутбукам", "Агрегация результатов"])
 
 
 # --- Кластеризация комментариев ---
@@ -743,230 +745,3 @@ with tab3:
             else:
                 st.warning("Пожалуйста, загрузите файл с посещаемостью.")
 
-# --- Качество ноутбуков ---
-with tab4:
-    # Добавляем приветственное сообщение 
-    st.subheader("Качество ноутбуков")
-    st.write("Добро пожаловать в приложение для проверки качества ноутбуков! 👋🏻")
-    
-    st.markdown("""
-        Данное приложение предназначено для анализа и улучшения качества Jupyter Notebook, включает:
-
-        1. Проверку кода на ошибки и соответствие стандартам.
-        2. Проверку стиля, включая структуру, докстринги, графики и оформление.
-        3. Отдельную проверку орфографии в Markdown-ячейках.
-        """)
-       
-    st.divider()
-    
-
-
-     # Радио-кнопка для выбора блока
-    selected_block = st.selectbox(
-        "Выберите блок для работы:",
-        ("Проверка качества кода", "Проверка стиля и орфографии", "Проверка орфографии"))
-    
-    if selected_block == "Проверка качества кода":
-     # Загрузка файла
-        uploaded_file = st.file_uploader("Загрузите файл Jupyter Notebook", type=["ipynb"])
-
-
-
-        if uploaded_file:
-            
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".ipynb") as temp_file:
-                temp_file.write(uploaded_file.read())
-                temp_file_path = temp_file.name
-            if not os.path.exists(temp_file_path):
-                raise FileNotFoundError(f"Файл {temp_file_path} не найден.")
-            # Опция длины строки для black
-            line_length = st.number_input(
-                "Укажите длину строки для инструмента black (по умолчанию 80):",
-                min_value=10,
-                max_value=200,
-                value=80,
-                step=1,)
-            
-            log_output = []
-            total_warnings = 0  # Подсчёт ошибок
-            if "log_output" not in st.session_state:
-                st.session_state.log_output = []
-                st.session_state.total_warnings = 0
-                st.session_state.score = 10.0
-            if st.button("Запустить проверку"):
-                # Сразу показываем раздел Логов
-                st.subheader("Логи")
-                
-                # 1. Запуск инструментов nbqa
-                tools = [
-                    ("ruff", ["--fix"]),
-                    ("pyupgrade", ["--py37-plus"]),
-                    ("black", ["-l", str(line_length)]),
-                    ("docformatter", ["--in-place"]),  # Исправленный вызов docformatter
-                    ("blacken-docs", []),
-                    ("mypy", []),
-                ]
-
-                error_keywords = ["warning", "error", "refactor", "fatal"]
-
-                for tool, args in tools:
-                    with st.spinner(f"Запуск {tool}..."): 
-                    
-                        # Запуск инструмента
-                        stdout, stderr, returncode = run_nbqa_tool(tool, temp_file_path, args)
-                        # Убираем ANSI escape коды из stdout и stderr
-                        clean_stdout = remove_ansi_escape_codes(stdout)
-                        clean_stderr = remove_ansi_escape_codes(stderr)
-                        if returncode == 0:
-                            st.text(f"{tool} успешно выполнен.")
-                            if stdout.strip():
-                                with st.expander(f"Сообщения {tool} (успешно)"):
-                                    st.markdown(parse_and_format_errors(tool, stdout, success=True))
-                                st.session_state.log_output.append(f"[{tool}] Успех:\n{clean_stdout}\n")
-                                
-                        
-                        
-                        else:
-                            # Подсчёт ошибок по ключевым словам
-                            error_count = sum(
-                                1 for line in (stdout + stderr).splitlines() if any(keyword in line.lower() for keyword in error_keywords)
-                            )
-                            total_warnings += error_count
-                            st.text(f"{tool} завершился с ошибками.")
-                            # Для инструментов, которые пишут в stdout вместо stderr
-                            combined_output = stdout + "\n" + stderr
-                            if combined_output.strip():
-                                with st.expander(f"Ошибки {tool}"):
-                                    st.markdown(parse_and_format_errors(tool, combined_output, success=False))
-                                st.session_state.log_output.append(f"[{tool}] Ошибки:\n{combined_output}\n")
-
-                # 3. Оценка качества
-                
-                score = max(0.0, 10.0 - st.session_state.total_warnings / 5)  # Оценка от 10 до 0
-                st.session_state.log_output.append(f"Оценка качества: [{score}]")
-                
-                
-                st.subheader("Оценка качества")
-                st.write(f"Итоговая оценка: {score:.2f}/10")
-                
-                # Генерация отчета
-                report_content = generate_report(st.session_state.log_output, score)
-                
-                # Скачивание отчета
-                st.download_button(
-                    label="Скачать отчет о проверке",
-                    data=report_content,
-                    file_name="notebook_check_report.txt",
-                    mime="text/plain",
-                )
-                # 4. Сохранение исправленного ноутбука
-                with open(temp_file_path, "rb") as corrected_file:
-                    st.download_button(
-                        label="Скачать исправленный ноутбук",
-                        data=corrected_file,
-                        file_name="corrected_notebook.ipynb",
-                        mime="application/x-ipynb+json",
-                    )
-    elif selected_block == "Проверка стиля и орфографии":
-        uploaded_file = st.file_uploader("Загрузите файл Jupyter Notebook", type=["ipynb"])
-        check_spelling = st.checkbox("Проверка орфографии", value=True)
-        if uploaded_file:
-        # Сохранение файла во временную папку
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".ipynb") as temp_file:
-                temp_file.write(uploaded_file.read())
-                notebook_path = temp_file.name
-
-            # Инициализация проверщика стиля
-            checker = NotebookStyleChecker(notebook_path)
-            if st.button("Запустить проверку"):
-                st.subheader("Результаты проверок")
-                all_messages = []  # Список для сохранения всех сообщений
-
-                # Вызываем все методы по очереди
-                checks = [
-                    ("Объем текста", checker.check_text_volume),
-                    ("Нумерация заголовков", checker.check_numbered_headings),
-                    ("Докстринги функций", checker.check_function_docstrings),
-                    ("Объяснительные Markdown ячейки", checker.check_explanatory_markdown),
-                    ("Короткие ячейки с кодом", checker.check_short_code_cells),
-                    ("Код без комментариев", checker.check_code_without_comments),
-                    ("Имена переменных", checker.check_variable_names),
-                    ("Магические константы", checker.check_no_magic_constants),
-                    ("Имена функций", checker.check_function_names),
-                    ("Тире и дефисы", checker.check_dashes_and_hyphens),
-                    ("Разделение вычислений и графиков", checker.check_computation_and_plotting),
-                    ("Комментарии к параметрам", checker.check_param_comments),
-                    ("Стиль графиков", checker.check_graphics_style),
-                ]
-
-                # Флажок для проверки орфографии
-                
-                if check_spelling:
-                    checks.append(("Орфография", checker.check_spelling))
-
-                for check_name, check_function in checks:
-                    with st.spinner(f"Запуск проверки: {check_name}..."):
-                        result = check_function()
-                        if result:
-                            st.subheader(check_name)
-                            st.text(result)
-                            all_messages.append(result)
-                      
-
-                # Итоговая оценка качества
-                quality_score = checker.calculate_quality_score()
-                st.write("## Итоговая оценка качества")
-                st.write(f"Оценка: {quality_score:.2f}/10")
-
-                # Скачать отчет с результатами
-                if all_messages:
-                    combined_messages = "\n\n".join(all_messages)
-                    st.download_button(
-                        label="Скачать отчет",
-                        data=combined_messages,
-                        file_name="notebook_check_report.txt",
-                        mime="text/plain",
-                    )
-    elif selected_block == "Проверка орфографии":
-        uploaded_file = st.file_uploader("Загрузите файл Jupyter Notebook", type=["ipynb"])
-  
-        if uploaded_file:
-        # Сохранение файла во временную папку
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".ipynb") as temp_file:
-                temp_file.write(uploaded_file.read())
-                temp_file_path = temp_file.name
-            total_warnings = 0 
-            log_output = []
-            if st.button("Запустить проверку"):
-                with st.spinner("Проверка орфографии..."):
-                    checker = NotebookStyleChecker(temp_file_path)
-                    check_spelling= checker.check_spelling()
-                    all_messages = []  # Список для сохранения всех сообщений
-
-
-                    checks = [("Орфография", checker.check_spelling)]
-                    if check_spelling:
-
-                        for check_name, check_function in checks:
-                            
-                            result = check_function()
-                            if result:
-                                st.subheader(check_name)
-                                st.text(result)
-                                all_messages.append(result)
-
-                                # Итоговая оценка качества
-                                quality_score = checker.calculate_quality_score()
-                                st.write("## Итоговая оценка качества")
-                                st.write(f"Оценка: {quality_score:.2f}/10")
-
-                        # Скачать отчет с результатами
-                        if all_messages:
-                            combined_messages = "\n\n".join(all_messages)
-                            st.download_button(
-                                label="Скачать отчет",
-                                data=combined_messages,
-                                file_name="notebook_check_report.txt",
-                                mime="text/plain",
-                            )
-            
