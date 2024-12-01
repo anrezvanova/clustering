@@ -22,7 +22,7 @@ def aggregate_scores(students, task_files, good_cols=None):
     for task_file in tqdm(task_files):
         try:
             # Парсим баллы студентов
-            table = pd.read_excel(task_file, sheet_name='Студенты')
+            table = pd.read_excel(task_file, sheet_name='Студенты', decimal=',')
             
             # Используем good_cols, если он передан, иначе выбираем 'Студент' и колонки начиная с D
             if good_cols:
@@ -61,7 +61,8 @@ def aggregate_max_ball_table(task_files, good_cols=None):
                 sheet_name='Список задач', 
                 skiprows=3, 
                 usecols="C:D", 
-                header=None
+                header=None,
+                decimal=','  # Обработка запятой как десятичного разделителя
             ).dropna(how='all')
             print(max_ball)
             max_ball.columns = ['Сумма', 'Значение']

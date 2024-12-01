@@ -6,8 +6,8 @@ from io import BytesIO
 from utils.clustering_comments_dbscan import *  # Импортируем модуль кластеризации
 from utils.search_notebooks import *  # Импортируем функцию поиска по ноутбукам
 from utils.results_students import * # Импортируем модуль агрегации результатов
-
 import re
+
 
 st.markdown(
     """
@@ -59,6 +59,48 @@ st.markdown(
     """,
     unsafe_allow_html=True
     )
+
+def display_dataframe_table(df):
+    
+    # Отображаем стиль с границей через markdown
+    # Стилизация для первых двух строк
+    
+    # Если у DataFrame есть многоуровневые колонки
+    if isinstance(df.columns, pd.MultiIndex):
+        # Извлекаем уровни колонок
+        top_level = df.columns.get_level_values(0)  # Первый уровень
+        second_level = df.columns.get_level_values(1)  # Второй уровень
+
+        # Добавляем новые строки, которые будут содержать уровни колонок
+        top_row = pd.DataFrame([top_level.values], columns=df.columns, index=["Для копирования"])
+        second_row = pd.DataFrame([second_level.values], columns=df.columns, index=["Для копирования"])
+
+        # Конкатенируем эти строки к оригинальному DataFrame
+        # Сохраняем исходную индексацию студентов и добавляем строки с уровнями
+        df_with_levels = pd.concat([top_row, second_row, df], axis=0)
+        df_with_levels= df_with_levels.apply(
+        lambda col: col.map(
+            lambda x: (
+                str(x).replace('.', ',') if isinstance(x, float) and x % 1 != 0 
+                else str(int(x)) if isinstance(x, (int, float)) 
+                else str(x)
+            )
+        )
+    )
+    else:
+        # Если нет многоуровневых колонок, просто отображаем DataFrame
+        df_with_levels = df.apply(
+        lambda col: col.map(
+            lambda x: (
+                str(x).replace('.', ',') if isinstance(x, float) and x % 1 != 0 
+                else str(int(x)) if isinstance(x, (int, float)) 
+                else str(x)
+            )
+        )
+    )
+    # Отображаем таблицу с уровнями в заголовках
+    st.dataframe(df_with_levels,use_container_width=True)
+
 
 # Функция для сортировки файлов по номеру и тексту
 def sort_files_by_number(files):
@@ -232,7 +274,7 @@ with tab3:
             uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"])
             if uploaded_file:
                 all_students = get_students_from_file(uploaded_file) 
-                st.success(f"Файл {uploaded_file.name} успешно загружен!") 
+                
             # Попытка загрузить студентов из файла
              
          
@@ -241,7 +283,7 @@ with tab3:
             students_input = st.text_area("Введите имена студентов, разделяя их новой строкой:")
             all_students = students_input.split("\n")
             all_students = [s.strip() for s in all_students if s.strip()]
-            st.success(f"Файл {uploaded_file.name} успешно загружен!") 
+            
         
         if all_students:
             # Выделение исключённых пользователей
@@ -290,6 +332,7 @@ with tab3:
                     except Exception as e:
                         st.error(f"Ошибка при обработке файла {file.name}: {e}")
                         return []
+                    
                 if "previous_files" not in st.session_state:  # Для отслеживания предыдущих файлов
                     st.session_state["previous_files"] = []
                 if "good_cols" not in st.session_state:
@@ -303,37 +346,61 @@ with tab3:
                     st.session_state["result_table_main"] = None
                 if "max_ball_table_main" not in st.session_state:
                     st.session_state["max_ball_table_main"] = None
-                main_task_files = st.file_uploader("Загрузите файлы", type=["xlsx"], accept_multiple_files=True,key="main_tasks_table")
+                # Инициализация состояния
+                if "uploader_key" not in st.session_state:
+                    st.session_state["uploader_key"] = 0    
+                if "show_sort_expander" not in st.session_state:
+                    st.session_state["show_sort_expander"] = False
+                if "main_task_files_sorted" not in st.session_state:
+                    st.session_state["main_task_files_sorted"] = []
+
+                main_task_files = st.file_uploader("Загрузите файлы", type=["xlsx"], accept_multiple_files=True,key=f"uploader_{st.session_state['uploader_key']}")
 
                 if main_task_files:
+                    # Сортировка по умолчанию
+                    sorted_files = sort_files_by_number(main_task_files)
+
+                   
+
+                    # Проверка, изменились ли файлы
                     new_file_names = [file.name for file in main_task_files]
                     previous_file_names = [file.name for file in st.session_state["previous_files"]]
-                    
+
                     if new_file_names != previous_file_names:
-                    # Если файлы изменились, сбрасываем состояния
-                        st.session_state["good_cols"] = []
-                        st.session_state["result_table_main"] = None
-                        st.session_state["max_ball_table_main"] = None
-                        st.session_state["previous_files"] = main_task_files 
+                        st.session_state["previous_files"] = main_task_files
+                        
+
+                    # Основной макет с кнопками
+                    col1, col2 = st.columns([8, 2])
+
+                    with col1:
+                        
+                        with st.expander("✏️Порядок файлов", expanded=True):
+                            # Создаем список имен файлов с индексами
+                            file_names_with_index = [f"{i + 1}: {file.name}" for i, file in enumerate(sorted_files)]
+                            ordered_file_names_with_index = sort_items(file_names_with_index, direction="vertical", key="sortable_list")
+
+                            # Извлекаем индексы из отсортированных имен
+                            ordered_indices = [int(name.split(":")[0]) - 1 for name in ordered_file_names_with_index]
+
+                            # Обновляем список файлов на основе отсортированных индексов
+                            new_finish_sorted = [sorted_files[i] for i in ordered_indices]
+                            finish_sorted = [file for file in st.session_state["main_task_files_sorted"]]
+                            if new_finish_sorted != finish_sorted:
+                                st.session_state["main_task_files_sorted"] = [sorted_files[i] for i in ordered_indices]
+                   
+                   
+                    with col2:
+                        # Кнопка для очистки всех файлов
+                        if st.button("Очистить все"):
+                            st.session_state["uploader_key"] += 1
+                            
+
                     
-                    sorted_files = sort_files_by_number(main_task_files)
-                        # Обновляем список загруженных файлов
-                    with st.expander("Изменить порядок файлов", expanded=False):
-                        # Drag-and-drop сортировка
-                        file_names = [file.name for file in sorted_files]
-                        ordered_file_names = sort_items(file_names, direction="vertical", key="sortable_list")
-
-                        # Сопоставление нового порядка
-                        main_task_files = [file for name in ordered_file_names for file in sorted_files if file.name == name]
-
-                    st.write("Файлы в пользовательском порядке:")
-                    for file in main_task_files:
-                        st.write(f"📄 {file.name}")
-                        # Проверка на наличие результатов в session_state
                     
                     # Извлечение уникальных типов сумм из файлов
                     all_sum_types = set()
-                    for task_file in main_task_files:
+                    for task_file in st.session_state["main_task_files_sorted"]:
                         all_sum_types.update(load_and_extract_sum_types(task_file))
 
                     # Сохраняем уникальные типы сумм в session_state
@@ -359,10 +426,10 @@ with tab3:
                             if st.session_state["aggregation_needs_update"]:
                                 # Выполняем агрегацию и сбрасываем флаг после завершения
                                 st.session_state["result_table_main"] = aggregate_scores(
-                                    valid_students, st.session_state["previous_files"], st.session_state["good_cols"]
+                                    valid_students, st.session_state["main_task_files_sorted"], st.session_state["good_cols"]
                                 )
                                 st.session_state["max_ball_table_main"] = aggregate_max_ball_table(
-                                    st.session_state["previous_files"], st.session_state["good_cols"]
+                                    st.session_state["main_task_files_sorted"], st.session_state["good_cols"]
                                 )
                                 
                                 # Сбрасываем флаг после выполнения агрегации
@@ -370,10 +437,10 @@ with tab3:
                             else:
                                 # Если флаг False, просто выполняем агрегацию без изменений флага
                                 st.session_state["result_table_main"] = aggregate_scores(
-                                    valid_students, st.session_state["previous_files"], st.session_state["good_cols"]
+                                    valid_students, st.session_state["main_task_files_sorted"], st.session_state["good_cols"]
                                 )
                                 st.session_state["max_ball_table_main"] = aggregate_max_ball_table(
-                                    st.session_state["previous_files"], st.session_state["good_cols"]
+                                    st.session_state["main_task_files_sorted"], st.session_state["good_cols"]
                                 )
                         
                             # Обновление прогресса
@@ -395,7 +462,7 @@ with tab3:
 
                             # Вывод таблицы баллов
                             st.subheader(f"Таблица баллов — Все типы сумм")
-                            st.dataframe(st.session_state["result_table_main"], use_container_width=True)
+                            display_dataframe_table(st.session_state["result_table_main"])
 
                             # Создание таблицы максимальных баллов
                             valid_columns = [
@@ -415,10 +482,10 @@ with tab3:
                                     for file, sum_type in valid_columns
                                 ]
                                 final_table = pd.DataFrame([values], columns=multiindex_columns)
-
+                                
                                 # Вывод таблицы максимальных баллов
                                 st.subheader(f"Таблица макс.баллов — Все типы сумм")
-                                st.dataframe(final_table, use_container_width=True)
+                                display_dataframe_table(final_table)
 
                                 
 
@@ -430,29 +497,13 @@ with tab3:
                                     max_ball_table_download = final_table.copy()
 
                                     # Форматирование колонок
-                                    result_table_download.columns = [
-                                        ' '.join(map(str, col)).strip() if isinstance(col, tuple) else col
-                                        for col in result_table_download.columns
-                                    ]
-                                    max_ball_table_download.columns = [
-                                        ' '.join(map(str, col)).strip() if isinstance(col, tuple) else col
-                                        for col in max_ball_table_download.columns
-                                    ]
+                                    result_table_download.columns = pd.MultiIndex.from_tuples([tuple(map(str, col)) if isinstance(col, tuple) else (col,) for col in result_table_download.columns])
+                                    max_ball_table_download.columns = pd.MultiIndex.from_tuples([tuple(map(str, col)) if isinstance(col, tuple) else (col,) for col in max_ball_table_download.columns])
 
                                     # Запись таблиц
                                     result_table_download.to_excel(writer, index=True, sheet_name="Результаты")
                                     max_ball_table_download.to_excel(writer, index=True, sheet_name="Макс Баллы")
 
-                                    # Настройка ширины колонок
-                                    for sheet_name in writer.sheets:
-                                        worksheet = writer.sheets[sheet_name]
-                                        dataframe = result_table_download if sheet_name == "Результаты" else max_ball_table_download
-                                        for idx, col in enumerate(dataframe.columns):
-                                            max_length = max(
-                                                dataframe[col].astype(str).map(len).max(),
-                                                len(str(col))
-                                            ) + 2
-                                            worksheet.set_column(idx + 1, idx + 1, max_length)
 
                                 # Кнопка скачивания
                                 st.download_button(
@@ -480,7 +531,7 @@ with tab3:
 
                                     # Отображаем таблицу баллов для текущего типа суммы
                                     st.subheader(f"Таблица баллов — {good_col}")
-                                    st.dataframe(filtered_result_table, use_container_width=True)
+                                    display_dataframe_table(filtered_result_table)
 
                                     # Фильтруем max_ball_table_main для текущего типа суммы
                                     if good_col in st.session_state["max_ball_table_main"].index:
@@ -489,7 +540,7 @@ with tab3:
 
                                         # Отображаем таблицу максимальных баллов
                                         st.subheader(f"Таблица макс.баллов — {good_col}")
-                                        st.dataframe(filtered_max_ball_table, use_container_width=True)
+                                        display_dataframe_table(filtered_max_ball_table)
                                     else:
                                         st.warning(f"Для типа суммы {good_col} нет данных в таблице максимальных баллов.")
 
@@ -504,10 +555,7 @@ with tab3:
                                     if matching_cols:
                                         # Создаем таблицу результатов
                                         filtered_result_table = st.session_state["result_table_main"].loc[:, matching_cols]
-                                        filtered_result_table.columns = [
-                                            " ".join(map(str, col)).strip() if isinstance(col, tuple) else col
-                                            for col in filtered_result_table.columns
-                                        ]
+                                        filtered_result_table.columns = pd.MultiIndex.from_tuples([tuple(map(str, col)) if isinstance(col, tuple) else (col,) for col in filtered_result_table.columns])
                                         filtered_result_table.to_excel(
                                             writer, index=True, sheet_name=f"Результаты_{good_col}"
                                         )
@@ -522,15 +570,6 @@ with tab3:
                                     writer, index=True, sheet_name="Макс Баллы"
                                 )
 
-                                # Настройка ширины колонок
-                                for sheet_name in writer.sheets:
-                                    worksheet = writer.sheets[sheet_name]
-                                    dataframe = max_ball_table_download if sheet_name == "Макс Баллы" else filtered_result_table
-                                    for idx, col in enumerate(dataframe.columns):
-                                        max_length = max(
-                                            dataframe[col].astype(str).map(len).max(), len(str(col))
-                                        ) + 2
-                                        worksheet.set_column(idx + 1, idx + 1, max_length)
 
                             # Кнопка скачивания файла
                             st.download_button(
