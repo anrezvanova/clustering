@@ -59,7 +59,21 @@ st.markdown(
     """,
     unsafe_allow_html=True
     )
-
+# CSS для уменьшения размера кнопок и текста
+st.markdown("""
+    <style>
+    .compact-list {
+        font-size: 0.85em;
+        padding: 0.3em 0;
+        margin-bottom: 0.3em;
+    }
+    .stButton > button {
+        font-size: 0.65em !important;
+        padding: 0.2em 0.5em !important;
+        margin-left: 5px !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 def display_dataframe_table(df):
     
     # Отображаем стиль с границей через markdown
@@ -229,54 +243,46 @@ with tab3:
     
     st.markdown("""
     С его помощью вы можете:
-    - **Собрать баллы по всем заданиям** 📝
-    - **Анализировать ответы на вопросы в боте** 💬
-    - **Отслеживать посещаемость занятий** 📅
+    - Собрать баллы по всем заданиям 
+    - Анализировать ответы на вопросы в боте 
+    - Отслеживать посещаемость занятий 
     """)
 
-    st.markdown("---")
-
-
-     # Радио-кнопка для выбора блока
+    # Радио-кнопка для выбора блока
     selected_block = st.selectbox(
         "Выберите блок для работы:",
-        ("Агрегация баллов", "Обработка результатов вопросов", "Посещаемость")
+        ("Агрегация баллов", "Обработка вопросов", "Посещаемость")
     )
+    st.divider()
 
     # --- Блок 1: Агрегация баллов ---
     if selected_block == "Агрегация баллов":
-        # --- Успеваемость ---
-        st.header("Агрегация баллов студентов")
-
+      
+        st.header("Агрегация баллов")
         st.markdown("""
-        Подготовка файлов:
+        
+        Вам понадобятся:
 
-        1. 📥 **Скачайте файл** *Пользователи.xlsx* с Яндекс.Диска.
-        2. 📁 **Скачайте папку** *'Проверка ДЗ'* с таблицами проверок с Google Диска.
+        1. 📥 Файл **Пользователи.xlsx** с Яндекс.Диска.
+        2. 📁 Папка **Проверка ДЗ** с таблицами проверок с Google Диска.
         """)
 
-        st.divider()
-        # Инициализация списка студентов, если он ещё не загружен
+        
+        # Загрузка студентов
         all_students = []
-        # Список исключаемых студентов
         excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник', 'Тест Никита', 'Тест Фотофон']
 
-        # Выбор варианта загрузки списка пользователей
-        # Секция для получения списка пользователей
         st.markdown("### Пользователи")
-
         st.markdown("""
         Загрузите список студентов из файла *Пользователи.xlsx* или введите их вручную.
         """)
-        option = st.radio("Выберите способ получения списка пользователей:", ("Загрузить из таблицы", "Ввести вручную"))
+        
+        option = st.radio("Выберите:", ("Загрузить из таблицы", "Ввести вручную"))
         
         if option == "Загрузить из таблицы":
             uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"])
             if uploaded_file:
-                all_students = get_students_from_file(uploaded_file) 
-                
-            # Попытка загрузить студентов из файла
-             
+                all_students = get_students_from_file(uploaded_file)   
          
         else:
             # Ручной ввод студентов
@@ -284,44 +290,45 @@ with tab3:
             all_students = students_input.split("\n")
             all_students = [s.strip() for s in all_students if s.strip()]
             
-        
+        col1, col2 = st.columns([3, 2])
         if all_students:
-            # Выделение исключённых пользователей
             
             excluded_detected = [s for s in all_students if s in excluded_students]
             valid_students = [s for s in all_students if s not in excluded_students]
+
             # Подсвечивание и возврат исключённых
             if excluded_detected:
+
                 st.warning(f"Исключены тестовые пользователи: {', '.join(excluded_detected)}. Вы можете их вернуть.")
                 
                 # Возможность вернуть исключённых
                 returned_users = []  # Перенесли сюда инициализацию
-                with st.expander("### Список тестовых пользователей:"):
-                    for user in excluded_detected:
-                        if st.checkbox(f"Вернуть {user}", key=f"return_{user}"):
-                            returned_users.append(user)
+                with col2:
+                    with st.expander("### Список тестовых пользователей:"):
+                        for user in excluded_detected:
+                            if st.checkbox(f"Вернуть {user}", key=f"return_{user}"):
+                                returned_users.append(user)
 
                 # Добавляем возвращённых пользователей к основному списку
                 valid_students.extend(returned_users)
-
-            # Обновляем текст в редакторе после возврата исключённых
-            with st.expander("Cписок студентов"):
-                # Перезаписываем текст редактора с учётом возвращённых
-                editable_students = st.text_area(
-                    "Отредактируйте список студентов:", 
-                    "\n".join(valid_students)  # Отображаем обновлённый список
-                )
-                valid_students = editable_students.split("\n")
-                valid_students = [s.strip() for s in valid_students if s.strip()]
+            with col1:
+                # Обновляем текст в редакторе после возврата исключённых
+                with st.expander("Cписок студентов"):
+                    # Перезаписываем текст редактора с учётом возвращённых
+                    editable_students = st.text_area(
+                        "Отредактируйте список студентов:", 
+                        "\n".join(valid_students)  # Отображаем обновлённый список
+                    )
+                    valid_students = editable_students.split("\n")
+                    valid_students = [s.strip() for s in valid_students if s.strip()]
                 
             if valid_students:
 
                 st.subheader('Баллы')
                 st.markdown("""
-                <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                Загрузите файлы.
-                </p>
-                """, unsafe_allow_html=True)
+                Загрузите таблицы проверок из папки *Проверка ДЗ* .
+                """)
+    
                 # Функция для кэширования загрузки данных
                 @st.cache_data(ttl=3600)
                 def load_and_extract_sum_types(file):
@@ -332,21 +339,20 @@ with tab3:
                     except Exception as e:
                         st.error(f"Ошибка при обработке файла {file.name}: {e}")
                         return []
-                    
-                if "previous_files" not in st.session_state:  # Для отслеживания предыдущих файлов
+
+                # Инициализация сессий    
+                if "previous_files" not in st.session_state:  
                     st.session_state["previous_files"] = []
                 if "good_cols" not in st.session_state:
                     st.session_state["good_cols"] = []
                 if "display_mode" not in st.session_state:
                     st.session_state["display_mode"] = "Все типы сумм"
-                # Флаг обновления
-                if "aggregation_needs_update" not in st.session_state:
+                if "aggregation_needs_update" not in st.session_state: # Флаг обновления
                     st.session_state["aggregation_needs_update"] = False    
                 if "result_table_main" not in st.session_state:
                     st.session_state["result_table_main"] = None
                 if "max_ball_table_main" not in st.session_state:
                     st.session_state["max_ball_table_main"] = None
-                # Инициализация состояния
                 if "uploader_key" not in st.session_state:
                     st.session_state["uploader_key"] = 0    
                 if "show_sort_expander" not in st.session_state:
@@ -357,25 +363,19 @@ with tab3:
                 main_task_files = st.file_uploader("Загрузите файлы", type=["xlsx"], accept_multiple_files=True,key=f"uploader_{st.session_state['uploader_key']}")
 
                 if main_task_files:
-                    # Сортировка по умолчанию
                     sorted_files = sort_files_by_number(main_task_files)
-
-                   
 
                     # Проверка, изменились ли файлы
                     new_file_names = [file.name for file in main_task_files]
                     previous_file_names = [file.name for file in st.session_state["previous_files"]]
-
                     if new_file_names != previous_file_names:
                         st.session_state["previous_files"] = main_task_files
                         
-
                     # Основной макет с кнопками
                     col1, col2 = st.columns([8, 2])
-
                     with col1:
-                        
                         with st.expander("✏️Порядок файлов", expanded=True):
+                            st.markdown("Список отсортирован автоматически. Перетащите файл, чтобы поменять порядок. ")
                             # Создаем список имен файлов с индексами
                             file_names_with_index = [f"{i + 1}: {file.name}" for i, file in enumerate(sorted_files)]
                             ordered_file_names_with_index = sort_items(file_names_with_index, direction="vertical", key="sortable_list")
@@ -389,50 +389,41 @@ with tab3:
                             if new_finish_sorted != finish_sorted:
                                 st.session_state["main_task_files_sorted"] = [sorted_files[i] for i in ordered_indices]
                    
-                   
                     with col2:
                         # Кнопка для очистки всех файлов
                         if st.button("Очистить все"):
                             st.session_state["uploader_key"] += 1
-                            
 
-                    
-                    
                     # Извлечение уникальных типов сумм из файлов
                     all_sum_types = set()
-                    for task_file in st.session_state["main_task_files_sorted"]:
+                    for task_file in st.session_state["previous_files"]:
                         all_sum_types.update(load_and_extract_sum_types(task_file))
 
-                    # Сохраняем уникальные типы сумм в session_state
                     st.session_state["good_cols"] = list(all_sum_types)
-                    
-                    
+
                     # Отображаем и позволяем редактировать список столбцов
                     new_good_cols = st.text_area("Типы сумм из загруженных таблиц. Вы можете их редактировать(через запятую).", value=", ".join(st.session_state["good_cols"]))
                         
                     # Преобразуем введенный список в список столбцов
                     updated_good_cols = [col.strip() for col in new_good_cols.split(",")]
-                        # Проверяем, изменились ли типы сумм
+                    # Проверяем, изменились ли типы сумм
                     if updated_good_cols != st.session_state["good_cols"]:
                         st.session_state["good_cols"] = updated_good_cols
                 
                         st.session_state["aggregation_needs_update"] = True
 
+
                     # Кнопка для выполнения агрегации
                     if st.button("Выполнить агрегацию"):
-                        
                         with st.spinner("Выполняется агрегация..."):
                             # Проверяем, нужно ли обновлять данные (если флаг False, то просто выполняем агрегацию)
                             if st.session_state["aggregation_needs_update"]:
-                                # Выполняем агрегацию и сбрасываем флаг после завершения
                                 st.session_state["result_table_main"] = aggregate_scores(
                                     valid_students, st.session_state["main_task_files_sorted"], st.session_state["good_cols"]
                                 )
                                 st.session_state["max_ball_table_main"] = aggregate_max_ball_table(
                                     st.session_state["main_task_files_sorted"], st.session_state["good_cols"]
                                 )
-                                
-                                # Сбрасываем флаг после выполнения агрегации
                                 st.session_state["aggregation_needs_update"] = False
                             else:
                                 # Если флаг False, просто выполняем агрегацию без изменений флага
@@ -442,8 +433,7 @@ with tab3:
                                 st.session_state["max_ball_table_main"] = aggregate_max_ball_table(
                                     st.session_state["main_task_files_sorted"], st.session_state["good_cols"]
                                 )
-                        
-                            # Обновление прогресса
+
             
                     # Показываем переключатели только если данные есть
                     if (
@@ -454,7 +444,12 @@ with tab3:
                         st.session_state["display_mode"] = st.radio(
                             'Выберите режим отображения', 
                             options=["Все типы сумм", "По отдельным типам сумм"], 
-                            index=["Все типы сумм", "По отдельным типам сумм"].index(st.session_state["display_mode"])
+                            index=["Все типы сумм", "По отдельным типам сумм"].index(st.session_state["display_mode"]),
+                            help=(
+                                'Каждый режим позволяет отображать типы сумм по-разному, чтобы копировать данные было быстрее.\n\n'
+                                '"Все типы сумм" — подходит для  ph@ds, Статистики ФБМФ и ВвАД. \n\n'
+                                '"По отдельным типам сумм" — подходит для ds3-потока и ds4-потока. '
+                            )
                         )
                         
                         # Режим отображения: Все типы сумм
@@ -487,8 +482,6 @@ with tab3:
                                 st.subheader(f"Таблица макс.баллов — Все типы сумм")
                                 display_dataframe_table(final_table)
 
-                                
-
                                 # Генерация файла для скачивания
                                 result_output_all = BytesIO()
                                 with pd.ExcelWriter(result_output_all, engine='xlsxwriter') as writer:
@@ -503,7 +496,6 @@ with tab3:
                                     # Запись таблиц
                                     result_table_download.to_excel(writer, index=True, sheet_name="Результаты")
                                     max_ball_table_download.to_excel(writer, index=True, sheet_name="Макс Баллы")
-
 
                                 # Кнопка скачивания
                                 st.download_button(
@@ -578,143 +570,226 @@ with tab3:
                                 file_name="Результаты_по_типам_сумм.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             )
-        else:        
-            st.warning("Список студентов пока пуст. Загрузите или введите данные.")     
+        
 
             
     # --- Блок 2: Обработка результатов вопросов ---
-    elif selected_block == "Обработка результатов вопросов":
-        st.header("Обработка результатов вопросов")
+    elif selected_block == "Обработка вопросов":
+        st.header("Обработка вопросов")
 
         st.markdown("""
         Вам понадобится:
 
-        1. 📥 **Скачать файл** *Пользователи.xlsx* с Яндекс.Диска.
-        2. 📁 **Скачать папку** *'Вопросы'* с Яндекс.Диска.
+        1. 📥 Файл **Пользователи.xlsx** с Яндекс.Диска.
+        2. 📁 Папка **Вопросы** с Яндекс.Диска.
         """)
-        st.divider()
+       
 
-        students = []
-        # Список исключаемых студентов
+        # Загрузка студентов
+        all_students = []
         excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник', 'Тест Никита', 'Тест Фотофон']
 
-        # Выбор варианта загрузки списка пользователей
-        st.subheader("Пользователи")
-        option = st.radio("Выберите способ получения списка пользователей:", ("Загрузить из таблицы", "Ввести вручную"))
-
+        st.markdown("### Пользователи")
+        st.markdown("""
+        Загрузите список студентов из файла *Пользователи.xlsx* или введите их вручную.
+        """)
+        
+        option = st.radio("Выберите:", ("Загрузить из таблицы", "Ввести вручную"))
+        
         if option == "Загрузить из таблицы":
-            uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"], key="questions")
+            uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"])
             if uploaded_file:
-                students = get_students_from_file(uploaded_file, excluded_students)
+                all_students = get_students_from_file(uploaded_file)   
+         
         else:
             # Ручной ввод студентов
             students_input = st.text_area("Введите имена студентов, разделяя их новой строкой:")
-            students = students_input.split("\n")
-            students = [s.strip() for s in students if s.strip()]
-
-        # Проверка на случай, если список студентов пустой
-        if not students:
-            st.warning("Список студентов пока пуст. Загрузите или введите данные.")
-        else:
-            # Возможность редактировать список студентов
-            with st.expander("Cписок студентов"):
-                editable_students = st.text_area("Отредактируйте список студентов:", "\n".join(students))
-                students = editable_students.split("\n")
-                students = [s.strip() for s in students if s.strip()]
+            all_students = students_input.split("\n")
+            all_students = [s.strip() for s in all_students if s.strip()]
             
-        st.subheader("Вопросы")
-        # Код для обработки результатов вопросов
-        question_files = st.file_uploader("Загрузите файлы с вопросами и ответами", type=["xlsx", "txt"], accept_multiple_files=True)
+        col1, col2 = st.columns([3, 2])
+        if all_students:
+            
+            excluded_detected = [s for s in all_students if s in excluded_students]
+            valid_students = [s for s in all_students if s not in excluded_students]
 
-        if question_files:
-            # Фильтруем загруженные файлы
-            filtered_files = filter_question_files(question_files)
+            # Подсвечивание и возврат исключённых
+            if excluded_detected:
 
-            # Сортируем отфильтрованные файлы по числовому идентификатору
-            sorted_files = sort_files_by_number(filtered_files)
+                st.warning(f"Исключены тестовые пользователи: {', '.join(excluded_detected)}. Вы можете их вернуть.")
+                
+                # Возможность вернуть исключённых
+                returned_users = []  # Перенесли сюда инициализацию
+                with col2:
+                    with st.expander("### Список тестовых пользователей:"):
+                        for user in excluded_detected:
+                            if st.checkbox(f"Вернуть {user}", key=f"return_{user}"):
+                                returned_users.append(user)
 
-            # Выводим отфильтрованные и отсортированные имена файлов
-            st.write("Фильтрованные и отсортированные файлы:")
-            for file in sorted_files:
-                st.write(file.name)
-            for file in sorted_files:
-                if file.name.endswith('.txt'):
-                    question_id = file.name[:4]  # предположим, что question_id — первые 4 символа
-                    author = find_author(question_id, [f.name for f in sorted_files])
-
-            if st.button("Выполнить обработку вопросов"):
-                try:
-                    # Обработка вопросных файлов
-                    result_table, unsent_questions, error_questions = process_question_files(students, [file.name for file in sorted_files], sorted_files)
-
-                    # Вывод результата
-                    st.subheader("Таблица с результатами")
-                    if not result_table.empty:
-                        st.markdown("""
-                        <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                        Эти данные "хорошие", их надо перенести в публичную таблицу.
-                        </p>
-                        """, unsafe_allow_html=True)
-                        st.dataframe(result_table)
-                        
-                    else:
-                        st.markdown("""
-                        <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                        Эти данные "хорошие", их надо перенести в публичную таблицу.
-                        </p>
-                        """, unsafe_allow_html=True)
-                        st.write("Не получено результатов.")
-
-                    st.subheader("Неразосланные вопросы")
-                    if unsent_questions:
-                        st.markdown("""
-                        <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                        Эти вопросы не были отправлены студентам, они не учитываются в итогах. Нужно написать преподавателям.
-                        </p>
-                        """, unsafe_allow_html=True)
-                        for key, value in unsent_questions.items():
-                            st.text(f"Вопрос {key}:\n{value}")
-                    else:
-                        st.markdown("""
-                        <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                        Эти вопросы не были отправлены студентам, они не учитываются в итогах. Нужно написать преподавателям.
-                        </p>
-                        """, unsafe_allow_html=True)
-                        st.write("Нет неразосланных вопросов.")
-                        
-
-                    st.subheader("Ошибки вопросов")
-                    if error_questions:
-                        st.markdown("""
-                        <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                        В случае наличия ошибок нужно посмотреть, может получится поправить. Если нет - написать преподавателям.
-                        </p>
-                        """, unsafe_allow_html=True)
-                        for key, value in error_questions.items():
-                            st.text(f"Вопрос {key}:\n{value}")
-                    else:
-                        st.markdown("""
-                        <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
-                        В случае наличия ошибок нужно посмотреть, может получится поправить. Если нет - написать преподавателям.
-                        </p>
-                        """, unsafe_allow_html=True)
-                        st.write("Ошибок нет.")
-
-                    # Подготовка файла для скачивания
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        result_table.to_excel(writer, sheet_name='Результаты')
-                    output.seek(0)
-
-                    # Кнопка для скачивания
-                    st.download_button(
-                        label="Скачать таблицу результатов",
-                        data=output,
-                        file_name="Результаты.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                # Добавляем возвращённых пользователей к основному списку
+                valid_students.extend(returned_users)
+            with col1:
+                # Обновляем текст в редакторе после возврата исключённых
+                with st.expander("Cписок студентов"):
+                    # Перезаписываем текст редактора с учётом возвращённых
+                    editable_students = st.text_area(
+                        "Отредактируйте список студентов:", 
+                        "\n".join(valid_students)  # Отображаем обновлённый список
                     )
-                except Exception as e:
-                    st.error(f"Произошла ошибка при обработке файлов: {e}")
+                    valid_students = editable_students.split("\n")
+                    valid_students = [s.strip() for s in valid_students if s.strip()]
+            if valid_students:
+                st.subheader("Вопросы")
+                # Функция для исключения файла
+                def exclude_file(file_name):
+                    if file_name not in st.session_state["excluded_files"]:
+                        st.session_state["excluded_files"].append(file_name)
+                        st.session_state["filtered_files"] = [
+                            file for file in st.session_state["filtered_files"] if file.name != file_name
+                        ]
+
+                # Функция для добавления файла обратно
+                def include_file(file_name):
+                    file_to_include = next(
+                        (file for file in st.session_state["uploaded_files"] if file.name == file_name), None
+                    )
+                    if file_to_include:
+                        st.session_state["filtered_files"].append(file_to_include)
+                        st.session_state["excluded_files"].remove(file_name)
+                # Код для обработки результатов вопросов
+                question_files = st.file_uploader("Загрузите файлы с вопросами и ответами", type=["xlsx", "txt"], accept_multiple_files=True)
+                if question_files:
+                # Инициализация состояния для загруженных файлов
+                    if "uploaded_files" not in st.session_state:
+                        st.session_state["uploaded_files"] = []
+
+                    if question_files:
+                        st.session_state["uploaded_files"] = question_files
+
+                    # Инициализация состояния для фильтрованных и исключенных файлов
+                    if "filtered_files" not in st.session_state:
+                        st.session_state["filtered_files"], st.session_state["excluded_files"] = filter_files_by_keywords(st.session_state["uploaded_files"])
+                    # Проверка, существуют ли необходимые сессионные переменные
+
+                    # Левый экспандер: Фильтрованные файлы
+                    with st.expander("Фильтрованные и отсортированные файлы", expanded=False):
+                        st.write("Введите текст для поиска файла:")
+                        search_query = st.text_input("Поиск файлов", "")
+                        
+                        # Фильтрация по имени файла
+                        filtered_files_for_search = [file for file in st.session_state["filtered_files"] if search_query.lower() in file.name.lower()]
+                        
+                        if filtered_files_for_search:
+                            st.write("Вы можете добавить файлы в исключенные или удалить их из списка.")
+                            for file in filtered_files_for_search:
+                                col1, col2 = st.columns([4, 1])
+                                with col1:
+                                    st.write(f"<div class='compact-list'>{file.name}</div>", unsafe_allow_html=True)
+                                with col2:
+                                    st.button("Исключить", key=f"exclude_{file.name}", on_click=exclude_file, args=(file.name,))
+                        else:
+                            st.write("Нет файлов для отображения по вашему запросу.")
+
+                    # Правый экспандер: Исключенные файлы
+                    with st.expander("Исключенные файлы", expanded=False):
+                        if st.session_state["excluded_files"]:
+                            st.write("Вы можете добавить исключенные файлы обратно в список вопросов.")
+                            for file_name in st.session_state["excluded_files"]:
+                                col1, col2 = st.columns([4, 1])
+                                with col1:
+                                    st.write(f"<div class='compact-list'>{file_name}</div>", unsafe_allow_html=True)
+                                with col2:
+                                    st.button("Добавить обратно", key=f"include_{file_name}", on_click=include_file, args=(file_name,))
+                        else:
+                            st.write("Нет исключенных файлов.")
+                    
+                    if "result_table" not in st.session_state:
+                        st.session_state["result_table"] = None
+
+                    if "unsent_questions" not in st.session_state:
+                        st.session_state["unsent_questions"] = {}
+
+                    if "error_questions" not in st.session_state:
+                        st.session_state["error_questions"] = {}
+                    if st.button("Выполнить обработку вопросов"):
+                        try:
+                            # Обработка вопросных файлов
+                            st.session_state["result_table"], st.session_state["unsent_questions"], st.session_state["error_questions"] = process_question_files(valid_students, [file.name for file in st.session_state["filtered_files"]], st.session_state["filtered_files"])
+                             # Сохраняем результаты в сессию
+                            
+                        except Exception as e:
+                            st.error(f"Произошла ошибка при обработке файлов: {e}")
+                        
+                 
+                        # Вывод результата
+                        st.subheader("Таблица с результатами")
+                        if st.session_state["result_table"] is not None and not st.session_state["result_table"].empty:
+                            st.markdown("""
+                            <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
+                            Эти данные "хорошие", их надо перенести в публичную таблицу.
+                            </p>
+                            """, unsafe_allow_html=True)
+                            
+                            st.dataframe(st.session_state["result_table"])
+                            
+                        else:
+                            st.markdown("""
+                            <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
+                            Эти данные "хорошие", их надо перенести в публичную таблицу.
+                            </p>
+                            """, unsafe_allow_html=True)
+                            st.write("Не получено результатов.")
+
+                        st.subheader("Неразосланные вопросы")
+                        if st.session_state["unsent_questions"]:
+                            st.markdown("""
+                            <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
+                            Эти вопросы не были отправлены студентам, они не учитываются в итогах. Нужно написать преподавателям.
+                            </p>
+                            """, unsafe_allow_html=True)
+                            for key, value in st.session_state["unsent_questions"].items():
+                                st.text(f"Вопрос {key}:\n{value}")
+                        else:
+                            st.markdown("""
+                            <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
+                            Эти вопросы не были отправлены студентам, они не учитываются в итогах. Нужно написать преподавателям.
+                            </p>
+                            """, unsafe_allow_html=True)
+                            st.write("Нет неразосланных вопросов.")
+                            
+
+                        st.subheader("Ошибки вопросов")
+                        if st.session_state["error_questions"]:
+                            st.markdown("""
+                            <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
+                            В случае наличия ошибок нужно посмотреть, может получится поправить. Если нет - написать преподавателям.
+                            </p>
+                            """, unsafe_allow_html=True)
+                            for key, value in st.session_state["error_questions"].items():
+                                st.text(f"Вопрос {key}:\n{value}")
+                        else:
+                            st.markdown("""
+                            <p style="font-size: 12px; font-style: italic; color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 5px;">
+                            В случае наличия ошибок нужно посмотреть, может получится поправить. Если нет - написать преподавателям.
+                            </p>
+                            """, unsafe_allow_html=True)
+                            st.write("Ошибок нет.")
+
+                        if st.session_state["result_table"] is not None and not st.session_state["result_table"].empty:
+                            result_table =  st.session_state["result_table"].copy()
+                            # Подготовка файла для скачивания
+                            output = io.BytesIO()
+                            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                                result_table.to_excel(writer, sheet_name='Результаты')
+                            output.seek(0)
+
+                            # Кнопка для скачивания
+                            st.download_button(
+                                label="Скачать таблицу результатов",
+                                data=output,
+                                file_name="Результаты.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
 
 
     # --- Блок 3: Посещаемость ---
@@ -727,33 +802,61 @@ with tab3:
         1. 📥 **Скачать файл** *Пользователи.xlsx* с Яндекс.Диска.
         2. 📥 **Скачать файл** *Посещаемость.xlsx* с папки 'Вопросы' Яндекс.Диска.
         """)
-       
-        st.divider()
-        
-        # Шаг 1: Загрузка списка студентов
 
-        students = []
+
+        # Загрузка студентов
+        all_students = []
         excluded_students = ['Тест Анастасия', 'Тест Анна', 'Тест Тест2', 'Тестов Ник', 'Тест Никита', 'Тест Фотофон']
 
-        st.subheader("Пользователи")
-        option = st.radio("Выберите способ получения списка пользователей:", ("Загрузить из таблицы", "Ввести вручную"))
-
+        st.markdown("### Пользователи")
+        st.markdown("""
+        Загрузите список студентов из файла *Пользователи.xlsx* или введите их вручную.
+        """)
+        
+        option = st.radio("Выберите:", ("Загрузить из таблицы", "Ввести вручную"))
+        
         if option == "Загрузить из таблицы":
-            uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"], key="attendance")
+            uploaded_file = st.file_uploader("Загрузите файл Excel с данными пользователей", type=["xlsx"])
             if uploaded_file:
-                students = get_students_from_file(uploaded_file, excluded_students)
+                all_students = get_students_from_file(uploaded_file)   
+         
         else:
+            # Ручной ввод студентов
             students_input = st.text_area("Введите имена студентов, разделяя их новой строкой:")
-            students = students_input.split("\n")
-            students = [s.strip() for s in students if s.strip()]
+            all_students = students_input.split("\n")
+            all_students = [s.strip() for s in all_students if s.strip()]
+            
+        col1, col2 = st.columns([3, 2])
+        if all_students:
+            
+            excluded_detected = [s for s in all_students if s in excluded_students]
+            valid_students = [s for s in all_students if s not in excluded_students]
 
-        if not students:
-            st.warning("Список студентов пока пуст. Загрузите или введите данные.")
-        else:
-            with st.expander("Cписок студентов"):
-                editable_students = st.text_area("Отредактируйте список студентов:", "\n".join(students))
-                students = editable_students.split("\n")
-                students = [s.strip() for s in students if s.strip()]
+            # Подсвечивание и возврат исключённых
+            if excluded_detected:
+
+                st.warning(f"Исключены тестовые пользователи: {', '.join(excluded_detected)}. Вы можете их вернуть.")
+                
+                # Возможность вернуть исключённых
+                returned_users = []  # Перенесли сюда инициализацию
+                with col2:
+                    with st.expander("### Список тестовых пользователей:"):
+                        for user in excluded_detected:
+                            if st.checkbox(f"Вернуть {user}", key=f"return_{user}"):
+                                returned_users.append(user)
+
+                # Добавляем возвращённых пользователей к основному списку
+                valid_students.extend(returned_users)
+            with col1:
+                # Обновляем текст в редакторе после возврата исключённых
+                with st.expander("Cписок студентов"):
+                    # Перезаписываем текст редактора с учётом возвращённых
+                    editable_students = st.text_area(
+                        "Отредактируйте список студентов:", 
+                        "\n".join(valid_students)  # Отображаем обновлённый список
+                    )
+                    valid_students = editable_students.split("\n")
+                    valid_students = [s.strip() for s in valid_students if s.strip()]
 
             st.subheader("Посещаемость")
             # Получение и редактирование списка преподавателей
@@ -763,7 +866,7 @@ with tab3:
             if students_file:
                 try:
                     with st.spinner("Выполняется агрегация..."):
-                        result_table = process_attendance(students_file, students)
+                        result_table = process_attendance(students_file, valid_students)
 
                         # Выводим объединённый результат
                         st.subheader("Таблица")

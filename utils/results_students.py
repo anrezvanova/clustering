@@ -29,6 +29,8 @@ def aggregate_scores(students, task_files, good_cols=None):
                 actual_cols = ['Студент'] + [col for col in good_cols if col in table.columns]
             else:
                 actual_cols = ['Студент'] + table.columns[3:].tolist()
+            
+            table.columns = [col.strip() for col in table.columns]
             table = table[actual_cols].iloc[5:-1].set_index('Студент') # оставляем нужные колонки
             table = table.loc[:, ~table.isna().all()] # отбрасываем пустые колонки, такое бывает
 
@@ -71,7 +73,7 @@ def aggregate_max_ball_table(task_files, good_cols=None):
 
             # Обрабатываем каждую строку файла
             for _, row in max_ball.iterrows():
-                sum_type = row['Сумма']
+                sum_type = row['Сумма'].strip() 
                 value = row['Значение']
                 
                 # Пропускаем, если сумма не в good_cols (если указан)
@@ -106,29 +108,16 @@ def aggregate_max_ball_table(task_files, good_cols=None):
 
 
 # --- БЛОК 2: Обработка результатов вопросов ---
-def filter_question_files(uploaded_files, excluded_files=None):
-    """
-    Фильтрует загруженные файлы, исключая файлы с именами из списка excluded_files.
+def filter_files_by_keywords(uploaded_files, keywords=["вопрос", "ответы"]):
+    filtered_files = []
+    excluded_files = []
+    for file in uploaded_files:
+        if any(keyword.lower() in file.name.lower() for keyword in keywords):
+            filtered_files.append(file)
+        else:
+            excluded_files.append(file.name)  # Только имя файла
+    return filtered_files, excluded_files
 
-    Parameters:
-    uploaded_files (list): Список файлов, загруженных через st.file_uploader.
-    excluded_files (list): Список исключаемых файлов. По умолчанию содержит файлы для исключения.
-
-    Returns:
-    list: Отфильтрованные файлы.
-    """
-    if excluded_files is None:
-        excluded_files = ['Оценивание занятий.xlsx', 'Посещаемость.xlsx']
-    
-    # Преобразуем список файлов в массив NumPy для более быстрой фильтрации
-    file_names = np.array([file.name for file in uploaded_files])  # Массив имен файлов
-    excluded_files = np.array(excluded_files)  # Массив исключаемых файлов
-    
-    # Применяем фильтрацию с помощью np.in1d
-    mask = ~np.in1d(file_names, excluded_files)  # Создаем маску, исключающую указанные файлы
-    file_names = list(file_names[mask])
-    # Возвращаем отфильтрованные файлы
-    return [uploaded_files[i] for i in range(len(uploaded_files)) if mask[i]]
 
 def find_author(question_id, answers_list, question_id_len=4):
     answers_list = np.array(answers_list)
@@ -228,7 +217,7 @@ def process_question_files(students, file_names, question_files):
      
    
     result_table = result_table.loc[students].fillna(0)
-
+    
     
     return result_table, unsent_questions, error_questions
 
