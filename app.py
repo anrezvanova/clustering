@@ -1,5 +1,6 @@
 
 import streamlit as st
+import requests
 from streamlit_sortables import sort_items
 import os
 from io import BytesIO
@@ -10,7 +11,19 @@ import re
 
 db_username = st.secrets["anrezvanova"]
 db_token = st.secrets["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"]
+response = requests.get(
+    "https://api.github.com/repos/anrezvanova/clustering",  # API для получения данных о пользователе
+    auth=(db_username, db_token)    # Аутентификация с помощью логина и токена
+)
 
+# Проверка ответа от GitHub API
+if response.status_code == 200:
+    st.write("Успешная аутентификация!")
+    user_data = response.json()  # Преобразуем ответ в JSON
+    st.write(user_data)          # Показываем информацию о пользователе
+else:
+    st.write(f"Ошибка: {response.status_code}")
+    st.write(response.text)
 st.markdown(
     """
     <style>
