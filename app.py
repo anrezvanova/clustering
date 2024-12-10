@@ -22,13 +22,13 @@ headers = {"Authorization": f"token {db_token}"}
 response = requests.get(url, headers=headers)
 
 # Проверяем статус ответа
-if response.status_code == 200:
-    repos = response.json()  # Преобразуем ответ в JSON
-    st.write(f"Успешно получено {len(repos)} репозиториев.")
-    st.json(repos)  # Отображаем список репозиториев
-else:
-    st.error(f"Ошибка: {response.status_code}")
-    st.write(response.text)
+try:
+    db_username = st.secrets["username"]
+    db_token = st.secrets["token"]
+    st.write(f"GitHub username: {db_username}")
+    st.write(f"GitHub token: {db_token[:5]}...")  # Частичное отображение токена
+except KeyError as e:
+    st.error(f"Ошибка: отсутствует ключ {e}")
 st.markdown(
     """
     <style>
