@@ -9,22 +9,25 @@ from utils.search_notebooks import *  # Импортируем функцию п
 from utils.results_students import * # Импортируем модуль агрегации результатов
 import re
 
-db_username = st.secrets["anrezvanova"]
-db_token = st.secrets["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"]
+db_username = st.secrets["username"]
+db_token = st.secrets["token"]
+
 # Задаем URL для получения репозиториев
 url = "https://api.github.com/user/repos"
 
-# Выполняем запрос к GitHub API с аутентификацией
-response = requests.get(url, auth=(db_username, db_token))
+# Заголовок для авторизации
+headers = {"Authorization": f"token {db_token}"}
 
-# Проверка ответа от GitHub API
+# Выполняем запрос к GitHub API с использованием токена
+response = requests.get(url, headers=headers)
+
+# Проверяем статус ответа
 if response.status_code == 200:
     repos = response.json()  # Преобразуем ответ в JSON
-    st.write(f"Список репозиториев пользователя {db_username}:")
-    for repo in repos:
-        st.write(repo["name"])  # Выводим имена репозиториев
+    st.write(f"Успешно получено {len(repos)} репозиториев.")
+    st.json(repos)  # Отображаем список репозиториев
 else:
-    st.write(f"Ошибка: {response.status_code}")
+    st.error(f"Ошибка: {response.status_code}")
     st.write(response.text)
 st.markdown(
     """
