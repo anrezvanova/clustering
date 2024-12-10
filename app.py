@@ -1,6 +1,6 @@
 
 import streamlit as st
-import requests
+
 from streamlit_sortables import sort_items
 import os
 from io import BytesIO
@@ -9,26 +9,7 @@ from utils.search_notebooks import *  # Импортируем функцию п
 from utils.results_students import * # Импортируем модуль агрегации результатов
 import re
 
-db_username = st.secrets["username"]
-db_token = st.secrets["token"]
 
-# Задаем URL для получения репозиториев
-url = "https://api.github.com/user/repos"
-
-# Заголовок для авторизации
-headers = {"Authorization": f"token {db_token}"}
-
-# Выполняем запрос к GitHub API с использованием токена
-response = requests.get(url, headers=headers)
-
-# Проверяем статус ответа
-try:
-    db_username = st.secrets["username"]
-    db_token = st.secrets["token"]
-    st.write(f"GitHub username: {db_username}")
-    st.write(f"GitHub token: {db_token[:5]}...")  # Частичное отображение токена
-except KeyError as e:
-    st.error(f"Ошибка: отсутствует ключ {e}")
 st.markdown(
     """
     <style>
