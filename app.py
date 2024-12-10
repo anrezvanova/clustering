@@ -12,7 +12,7 @@ import re
 db_username = st.secrets["anrezvanova"]
 db_token = st.secrets["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"]
 # Задаем URL для получения репозиториев
-url = f"https://api.github.com/users/{db_username}/repos"
+url = "https://api.github.com/user/repos"
 
 # Выполняем запрос к GitHub API с аутентификацией
 response = requests.get(url, auth=(db_username, db_token))
