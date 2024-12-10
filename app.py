@@ -8,6 +8,8 @@ from utils.search_notebooks import *  # Импортируем функцию п
 from utils.results_students import * # Импортируем модуль агрегации результатов
 import re
 
+db_username = st.secrets["anrezvanova"]
+db_token = st.secrets["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"]
 
 st.markdown(
     """
