@@ -145,47 +145,67 @@ with tab1:
     st.write("Добро пожаловать в приложение для кластеризации комментариев! 👋🏻")
     st.write("📄 Для начала скачайте таблицу проверки в формате Excel (.xlsx) на Google Диске.")
     st.write("⬇️ Загрузите ее по кнопке ниже, и система автоматически разделит комментарии на кластеры.")
-    uploaded_file = st.file_uploader("Загрузка таблиц", type=['xlsx'],accept_multiple_files=False,key="fileUploader")
+
+    uploaded_file = st.file_uploader("Загрузите таблицу для анализа", type=['xlsx'], accept_multiple_files=False)
 
     if uploaded_file is not None:
-        # Сохраняем файл на диск
-        with open(f"./temp/{uploaded_file.name}", "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        file_path = uploaded_file
+
+        # Кластеризация в Streamlit
+        with st.spinner("Кластеризация данных выполняется, пожалуйста, подождите..."):
+            clustered_data = main(file_path, "Студент", "Проверяющий", "Индивидуальный комментарий", "Комментарий")
         
-        # Получаем путь к сохраненному файлу
-        file_path = f"./temp/{uploaded_file.name}"
-        clustered_data = main(file_path, "Студент", "Проверяющий", "Индивидуальный комментарий", "Комментарий")
-        
-        # Проверяем, что функция вернула результат
-        if clustered_data is not None:
-            # Определяем функцию для стилизации
+        if clustered_data is not None and not clustered_data.empty:
+            st.success("Кластеризация завершена! Вы можете скачать результат.")
+            
+            # Функция для подсветки задач и жирного шрифта для кластеров
             def highlight_tasks_and_clusters(val):
-                # Если значение содержит '---', выделяем его как название задачи
                 if '---' in str(val):
-                    return 'background-color: #ccffcc;'  # Светло-зелёный фон
-                # Убираем лишнюю проверку для кластеров
-                return ""  # Оставляем остальные ячейки без изменений
+                    return 'background-color: #ccffcc; text-align: center; font-weight: bold;'
+                elif 'Кластер' in str(val):
+                    return 'font-weight: bold;'  # Жирный шрифт для кластеров
+                return ""
+            
+            # Применение стилей
             styled_data = clustered_data.style.map(highlight_tasks_and_clusters)
 
-            # Применяем стилизацию
-            styled_data = clustered_data.style.map(highlight_tasks_and_clusters)
-
-            # Применяем автоширину к столбцам
+            # Расчет ширины столбцов
             col_widths = {
                 col: max(clustered_data[col].astype(str).map(len).max(), len(col)) + 5
                 for col in clustered_data.columns
             }
-            
-            # Устанавливаем ширину столбцов
-            for col, width in col_widths.items():
-                styled_data.set_properties(subset=[col], **{'width': f'{width}ch'})
 
+            styled_html = styled_data.set_table_styles([
+                {'selector': 'th', 'props': [('text-align', 'center'), ('width', 'auto')]},  # Центровка заголовков и автоширина
+                {'selector': 'td', 'props': [('text-align', 'left'), ('word-wrap', 'break-word')]}  # Выровнять по левому краю и перенос слов
+            ]).to_html()
+
+            # Устанавливаем ширину столбцов в HTML
+            for col, width in col_widths.items():
+                styled_html = styled_html.replace(
+                    f'<th>{col}</th>',
+                    f'<th style="width: {width}ch;">{col}</th>'
+                )
+
+            # Выводим результаты в Streamlit
             st.write("Результаты кластеризации:")
-            st.table(styled_data)
-            
-            # Отображаем DataFrame с кластеризацией
+            st.write(styled_html, unsafe_allow_html=True)
+
+            base_file_name = os.path.splitext(uploaded_file.name)[0]  # Получаем базовое имя файла (без расширения)
+            buffer = save_results_to_excel(clustered_data, base_file_name)
+
+            # Кнопка для скачивания
+            st.download_button(
+                label="Скачать результаты в Excel",
+                data=buffer,
+                file_name=f"{base_file_name}_clustering_results.xlsx",  # Имя файла с результатами
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         else:
-            st.write("Ошибка: Кластеризация не вернула данных.")
+            st.warning("Кластеризация не выявила подходящих данных.")
+    else:
+        st.info("Пожалуйста, загрузите файл для обработки.")
+
 
 # --- Поиск по ноутбукам ---
 with tab2:
